@@ -22,7 +22,9 @@ env:
   DEBIAN_FRONTEND: noninteractive
 
 jobs:
+  # This fork intentionally builds only macOS and Windows Qt5.
   linux-build:
+    if: false
     name: ${{ matrix.name }}
     runs-on: ubuntu-latest
     container: ${{ matrix.os }}
@@ -257,6 +259,7 @@ jobs:
           if-no-files-found: error
 
   linux-rpm:
+    if: false
     name: ${{ matrix.os }}
     runs-on: ubuntu-latest
     container: ${{ matrix.os }}
@@ -432,10 +435,6 @@ jobs:
            os: windows-2022
            qt-version: 5.15
            qt-major: 5
-         - name: Windows Qt6
-           os: windows-2022
-           qt-version: 6.6
-           qt-major: 6
 
     steps:
       - uses: actions/checkout@v4
@@ -505,6 +504,7 @@ jobs:
           if-no-files-found: error
 
   freebsd-build:
+    if: false
     name: freebsd-14-1
     runs-on: ubuntu-latest
 
@@ -544,6 +544,7 @@ jobs:
           cmake --build . --parallel
 
   flatpak:
+    if: false
     runs-on: ubuntu-latest
     container:
       image: bilelmoussaoui/flatpak-github-actions:kde-6.7
