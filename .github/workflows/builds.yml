@@ -429,7 +429,7 @@ jobs:
       matrix:
        include:
          - name: Windows Qt5
-           os: windows-2019
+           os: windows-2022
            qt-version: 5.15
            qt-major: 5
          - name: Windows Qt6
@@ -488,7 +488,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.os }}-${{ env.B_BUILD_TYPE }}
+          name: ${{ matrix.name }}-${{ env.B_BUILD_TYPE }}
           path: ${{ env.B_BUILD_TYPE }}.zip
           if-no-files-found: warn
 
