@@ -18,6 +18,7 @@
  */
 
 #include "platform/MSWindowsScreen.h"
+#include "platform/MSWindowsSyntheticInput.h"
 
 #include "platform/MSWindowsDropTarget.h"
 #include "client/Client.h"
@@ -1787,7 +1788,7 @@ MSWindowsScreen::fakeLocalKey(KeyButton button, bool press) const
     DWORD pressFlag = press ? KEYEVENTF_EXTENDEDKEY : KEYEVENTF_KEYUP;
     input.ki.dwFlags = pressFlag;
     input.ki.time = 0;
-    input.ki.dwExtraInfo = 0;
+    input.ki.dwExtraInfo = kMSWindowsSyntheticInputMarker;
     SendInput(1,&input,sizeof(input));
 }
 

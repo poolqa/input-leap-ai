@@ -21,6 +21,9 @@
 #include "base/Event.h"
 #include "base/IEventQueue.h"
 
+#include <algorithm>
+#include <chrono>
+
 namespace inputleap {
 
 OSXEventQueueBuffer::OSXEventQueueBuffer(IEventQueue* events) :
@@ -48,8 +51,24 @@ OSXEventQueueBuffer::init()
 void
 OSXEventQueueBuffer::waitForEvent(double timeout)
 {
-    EventRef event;
-    ReceiveNextEvent(0, nullptr, timeout, false, &event);
+    // PostEventToQueue() no longer reliably interrupts ReceiveNextEvent() when
+    // the producer is a different thread on current macOS.  Use an explicit
+    // condition variable for InputLeap events, retaining a short timeout so
+    // native Carbon events are still observed.
+    std::unique_lock<std::mutex> lock(m_wakeMutex);
+    if (!isEmpty()) {
+        return;
+    }
+
+    constexpr auto nativeEventPollInterval = std::chrono::milliseconds(50);
+    if (timeout < 0.0) {
+        m_wakeCondition.wait_for(lock, nativeEventPollInterval);
+    }
+    else {
+        const auto requested = std::chrono::duration<double>(timeout);
+        m_wakeCondition.wait_for(lock, std::min(requested,
+                                                std::chrono::duration<double>(nativeEventPollInterval)));
+    }
 }
 
 IEventQueueBuffer::Type OSXEventQueueBuffer::getEvent(Event& event, std::uint32_t& dataID)
@@ -98,15 +117,18 @@ bool OSXEventQueueBuffer::addEvent(std::uint32_t dataID)
                             &event);
 
     if (error == noErr) {
-
         assert(m_carbonEventQueue != nullptr);
 
-        error = PostEventToQueue(
-            m_carbonEventQueue,
-            event,
-            kEventPriorityStandard);
+        {
+            std::lock_guard<std::mutex> lock(m_wakeMutex);
+            error = PostEventToQueue(
+                m_carbonEventQueue,
+                event,
+                kEventPriorityStandard);
+        }
 
         ReleaseEvent(event);
+        m_wakeCondition.notify_one();
     }
 
     return (error == noErr);

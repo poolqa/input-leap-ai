@@ -23,6 +23,7 @@
 #include "net/XSocket.h"
 #include "io/filesystem.h"
 #include <mutex>
+#include <vector>
 
 namespace inputleap {
 
@@ -73,7 +74,7 @@ private:
     void disconnect();
 
     // may only be called with ssl_mutex_ acquired
-    bool verify_peer_certificate(const inputleap::fs::path& fingerprint_db_path);
+    bool verify_peer_certificate(const std::vector<inputleap::fs::path>& fingerprint_db_paths);
 
     MultiplexerJobStatus serviceConnect(ISocketMultiplexerJob*, bool, bool, bool);
     MultiplexerJobStatus serviceAccept(ISocketMultiplexerJob*, bool, bool, bool);

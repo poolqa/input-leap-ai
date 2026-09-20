@@ -446,8 +446,9 @@ SecureSocket::secureAccept(int socket)
     // If not fatal and no retry, state is good
     if (secure_accept_retry_ == 0) {
         if (security_level_ == ConnectionSecurityLevel::ENCRYPTED_AUTHENTICATED) {
-            if (verify_peer_certificate(
-                        inputleap::DataDirectories::trusted_clients_ssl_fingerprints_path())) {
+            if (verify_peer_certificate({
+                        inputleap::DataDirectories::trusted_clients_ssl_fingerprints_path(),
+                        inputleap::DataDirectories::trusted_peers_ssl_fingerprints_path()})) {
                 LOG_INFO("accepted secure socket");
             }
             else {
@@ -519,7 +520,9 @@ SecureSocket::secureConnect(int socket)
     secure_connect_retry_ = 0;
     // No error, set ready, process and return ok
     m_secureReady = true;
-    if (verify_peer_certificate(inputleap::DataDirectories::trusted_servers_ssl_fingerprints_path())) {
+    if (verify_peer_certificate({
+            inputleap::DataDirectories::trusted_servers_ssl_fingerprints_path(),
+            inputleap::DataDirectories::trusted_peers_ssl_fingerprints_path()})) {
         LOG_INFO("connected to secure socket");
     }
     else {
@@ -653,7 +656,8 @@ SecureSocket::disconnect()
     sendEvent(EventType::STREAM_INPUT_SHUTDOWN);
 }
 
-bool SecureSocket::verify_peer_certificate(const inputleap::fs::path& fingerprint_db_path)
+bool SecureSocket::verify_peer_certificate(
+    const std::vector<inputleap::fs::path>& fingerprint_db_paths)
 {
     // ssl_mutex_ is assumed to be acquired
 
@@ -685,27 +689,24 @@ bool SecureSocket::verify_peer_certificate(const inputleap::fs::path& fingerprin
          inputleap::format_ssl_fingerprint(fingerprint_sha1.data).c_str(),
          inputleap::format_ssl_fingerprint(fingerprint_sha256.data).c_str());
 
-    // Provide debug hint as to what file is being used to verify fingerprint trust
-    LOG_NOTE("fingerprint_db_path: %s", fingerprint_db_path.u8string().c_str());
+    for (const auto& fingerprint_db_path : fingerprint_db_paths) {
+        LOG_NOTE("fingerprint_db_path: %s", fingerprint_db_path.u8string().c_str());
 
-    inputleap::FingerprintDatabase db;
-    db.read(fingerprint_db_path);
+        inputleap::FingerprintDatabase db;
+        db.read(fingerprint_db_path);
 
-    if (!db.fingerprints().empty()) {
-        LOG_NOTE("Read %zd fingerprints from: %s", db.fingerprints().size(),
-             fingerprint_db_path.u8string().c_str());
-    } else {
-        LOG_NOTE("Could not read fingerprints from: %s",
-             fingerprint_db_path.u8string().c_str());
+        if (!db.fingerprints().empty()) {
+            LOG_NOTE("Read %zd fingerprints from: %s", db.fingerprints().size(),
+                 fingerprint_db_path.u8string().c_str());
+        }
+        if (db.is_trusted(fingerprint_sha256)) {
+            LOG_NOTE("Fingerprint matches trusted fingerprint");
+            return true;
+        }
     }
 
-    if (db.is_trusted(fingerprint_sha256)) {
-        LOG_NOTE("Fingerprint matches trusted fingerprint");
-        return true;
-    } else {
-        LOG_NOTE("Fingerprint does not match trusted fingerprint");
-        return false;
-    }
+    LOG_NOTE("Fingerprint does not match a trusted role or peer fingerprint");
+    return false;
 }
 
 MultiplexerJobStatus SecureSocket::serviceConnect(ISocketMultiplexerJob* job,

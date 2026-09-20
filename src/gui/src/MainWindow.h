@@ -102,6 +102,12 @@ class MainWindow : public QMainWindow
         void autoAddScreen(const QString name);
         void updateZeroconfService();
         void serverDetected(const QString name);
+        bool peerModeEnabled() const;
+        QString peerNodeId() const;
+        quint16 peerPort() const;
+        void peerDetected(const QString& name, const QString& host, quint16 port,
+                          const QString& nodeId, const QString& capabilities,
+                          const QString& fingerprint);
 
     Q_SIGNALS:
         void requestLanguageChange(QString newLanguage);
@@ -117,6 +123,8 @@ public slots:
     protected slots:
         void on_m_pGroupClient_toggled(bool on);
         void on_m_pGroupServer_toggled(bool on);
+        void on_m_pGroupPeer_toggled(bool on);
+        void on_m_pButtonTrustPeer_clicked();
         bool on_m_pButtonBrowseConfigFile_clicked();
         void on_m_pButtonConfigureServer_clicked();
         bool on_m_pActionSave_triggered();
@@ -125,6 +133,7 @@ public slots:
         void cmd_app_finished(int exitCode, QProcess::ExitStatus);
         void trayActivated(QSystemTrayIcon::ActivationReason reason);
         void stop_cmd_app();
+        void exitApplication();
         void logOutput();
         void logError();
         void bonjourInstallFinished();
@@ -132,7 +141,9 @@ public slots:
 
     protected:
         QSettings& settings() { return m_Settings; }
+        QSettings& settings() const { return m_Settings; }
         AppConfig& appConfig() { return *m_AppConfig; }
+        const AppConfig& appConfig() const { return *m_AppConfig; }
         void initConnections();
         void createMenuBar();
         void createTrayIcon();
@@ -170,6 +181,7 @@ public slots:
         QSettings& m_Settings;
         AppConfig* m_AppConfig;
         QProcess* cmd_app_process_;
+        QProcess* peer_client_process_{nullptr};
         AppConnectionState connection_state_ = AppConnectionState::DISCONNECTED;
         ServerConfig m_ServerConfig;
         QTemporaryFile* m_pTempConfigFile;
@@ -195,6 +207,7 @@ public slots:
         LogWindow *m_pLogWindow;
 
         bool m_fingerprint_expanded = false;
+        bool peer_restart_pending_{false};
 
 private slots:
     void on_m_pCheckBoxAutoConfig_toggled(bool checked);

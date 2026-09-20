@@ -117,6 +117,22 @@ bool PlatformScreenLoggingWrapper::isPrimary() const
     return result;
 }
 
+bool PlatformScreenLoggingWrapper::supportsHybridInput() const
+{
+    return screen_->supportsHybridInput();
+}
+
+void PlatformScreenLoggingWrapper::fakeAllMouseButtonsUp()
+{
+    LOG_DEBUG1("PlatformScreen::fakeAllMouseButtonsUp()");
+    screen_->fakeAllMouseButtonsUp();
+}
+
+void PlatformScreenLoggingWrapper::waitForPlatformEventLoop()
+{
+    screen_->waitForPlatformEventLoop();
+}
+
 std::string& PlatformScreenLoggingWrapper::getDraggingFilename()
 {
     auto& result = screen_->getDraggingFilename();

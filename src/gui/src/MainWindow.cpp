@@ -34,6 +34,7 @@
 #include "base/String.h"
 #include "common/DataDirectories.h"
 #include "net/FingerprintDatabase.h"
+#include "net/PeerIdentityDatabase.h"
 #include "net/SecureUtils.h"
 
 #include <QtCore>
@@ -261,7 +262,13 @@ void MainWindow::createTrayIcon()
     m_pTrayIconMenu->addAction(ui_->m_pActionMinimize);
     m_pTrayIconMenu->addAction(ui_->m_pActionRestore);
     m_pTrayIconMenu->addSeparator();
-    m_pTrayIconMenu->addAction(ui_->m_pActionQuit);
+
+    // QAction::QuitRole is removed from a QMenu by macOS and moved into the
+    // application menu.  Use a dedicated NoRole action so Exit remains the
+    // final item in the status-item context menu on every platform.
+    auto* exitAction = m_pTrayIconMenu->addAction(tr("Exit"));
+    exitAction->setMenuRole(QAction::NoRole);
+    connect(exitAction, &QAction::triggered, this, &MainWindow::exitApplication);
 
     m_pTrayIcon = new QSystemTrayIcon(this);
     m_pTrayIcon->setContextMenu(m_pTrayIconMenu);
@@ -332,6 +339,28 @@ void MainWindow::loadSettings()
                                                     QDir::homePath() + "/" + APP_CONFIG_NAME).toString());
     ui_->m_pGroupClient->setChecked(settings().value("groupClientChecked", true).toBool());
     ui_->m_pLineEditHostname->setText(settings().value("serverHostname").toString());
+    // Schema 2 makes the operating mode explicit.  Older installations only
+    // had server/client settings (or the short-lived peerModeEnabled flag), so
+    // migrate them without changing their established legacy behaviour.
+    QString connectionMode = settings().value("connectionMode").toString();
+    if (connectionMode != "legacy" && connectionMode != "peer") {
+        connectionMode = settings().value("peerModeEnabled", false).toBool()
+            ? QStringLiteral("peer") : QStringLiteral("legacy");
+        settings().setValue("connectionMode", connectionMode);
+        settings().setValue("connectionModeSchemaVersion", 2);
+        settings().sync();
+    }
+    ui_->m_pGroupPeer->setChecked(connectionMode == "peer");
+    auto nodeId = settings().value("peerNodeId").toString();
+    if (nodeId.isEmpty() || nodeId == "0") {
+        auto value = QRandomGenerator::global()->generate64();
+        if (value == 0) {
+            value = 1;
+        }
+        nodeId = QString::number(value, 16);
+        settings().setValue("peerNodeId", nodeId);
+    }
+    ui_->m_pLabelPeerIdentity->setText(tr("Peer identity: %1").arg(nodeId));
 }
 
 void MainWindow::initConnections()
@@ -343,7 +372,20 @@ void MainWindow::initConnections()
     connect(ui_->m_pActionStopCmdApp, &QAction::triggered, this, &MainWindow::stop_cmd_app);
     connect(ui_->m_pActionShowLog, &QAction::triggered, this, &MainWindow::showLogWindow);
     connect(ui_->m_pActionReload, &QAction::triggered, this, &MainWindow::restart_cmd_app);
-    connect(ui_->m_pActionQuit, &QAction::triggered, qApp, &QCoreApplication::quit);
+    connect(ui_->m_pActionQuit, &QAction::triggered, this, &MainWindow::exitApplication);
+}
+
+void MainWindow::exitApplication()
+{
+    // Closing the window only hides InputLeap because it is a tray application.
+    // Exit is deliberately stronger: stop every managed core process (or the
+    // service command), persist settings, remove the tray icon and end the GUI.
+    stop_cmd_app();
+    saveSettings();
+    if (m_pTrayIcon != nullptr) {
+        m_pTrayIcon->hide();
+    }
+    QCoreApplication::quit();
 }
 
 void MainWindow::saveSettings()
@@ -355,6 +397,10 @@ void MainWindow::saveSettings()
     settings().setValue("useInternalConfig", ui_->m_pRadioInternalConfig->isChecked());
     settings().setValue("groupClientChecked", ui_->m_pGroupClient->isChecked());
     settings().setValue("serverHostname", ui_->m_pLineEditHostname->text());
+    settings().setValue("peerModeEnabled", ui_->m_pGroupPeer->isChecked());
+    settings().setValue("connectionMode",
+                        ui_->m_pGroupPeer->isChecked() ? "peer" : "legacy");
+    settings().setValue("connectionModeSchemaVersion", 2);
 
     settings().sync();
 }
@@ -389,9 +435,13 @@ void MainWindow::trayActivated(QSystemTrayIcon::ActivationReason reason)
 
 void MainWindow::logOutput()
 {
-    if (cmd_app_process_)
+    auto* process = qobject_cast<QProcess*>(sender());
+    if (process == nullptr) {
+        process = cmd_app_process_;
+    }
+    if (process)
     {
-        QString text(cmd_app_process_->readAllStandardOutput());
+        QString text(process->readAllStandardOutput());
 #if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
         const auto results = text.split(QRegularExpression("\r|\n|\r\n"));
 #else
@@ -408,9 +458,13 @@ void MainWindow::logOutput()
 
 void MainWindow::logError()
 {
-    if (cmd_app_process_)
+    auto* process = qobject_cast<QProcess*>(sender());
+    if (process == nullptr) {
+        process = cmd_app_process_;
+    }
+    if (process)
     {
-        appendLogRaw(cmd_app_process_->readAllStandardError());
+        appendLogRaw(process->readAllStandardError());
     }
 }
 
@@ -573,11 +627,24 @@ void MainWindow::start_cmd_app()
 
     QString app;
     QStringList args;
+    QString peerClientApp;
+    QStringList peerClientArgs;
+
+    if (peerModeEnabled() && !m_AppConfig->getCryptoEnabled()) {
+        QMessageBox::warning(this, tr("Peer mode"),
+                             tr("Peer mode requires TLS to authenticate both computers."));
+        set_connection_state(AppConnectionState::DISCONNECTED);
+        return;
+    }
 
     args << "-f" << "--no-tray" << "--debug" << appConfig().logLevelText();
 
 
     args << "--name" << getScreenName();
+
+    if (peerModeEnabled()) {
+        args << "--peer-mode";
+    }
 
     if (desktopMode)
     {
@@ -624,9 +691,22 @@ void MainWindow::start_cmd_app()
     args << "--profile-dir" << QString::fromStdString("\"" + inputleap::DataDirectories::profile().u8string() + "\"");
 #endif
 
-    if ((app_role() == AppRole::Client && !clientArgs(args, app))
-        || (app_role() == AppRole::Server && !serverArgs(args, app)))
-    {
+    if (peerModeEnabled() && !desktopMode) {
+        QMessageBox::warning(this, tr("Peer mode"),
+                             tr("Peer mode currently requires desktop process mode."));
+        stop_cmd_app();
+        return;
+    }
+
+    if (peerModeEnabled()) {
+        peerClientArgs = args;
+        if (!serverArgs(args, app) || !clientArgs(peerClientArgs, peerClientApp)) {
+            stop_cmd_app();
+            return;
+        }
+    }
+    else if ((app_role() == AppRole::Client && !clientArgs(args, app))
+             || (app_role() == AppRole::Server && !serverArgs(args, app))) {
         stop_cmd_app();
         return;
     }
@@ -640,7 +720,8 @@ void MainWindow::start_cmd_app()
 
     m_pLogWindow->startNewInstance();
 
-    appendLogInfo("starting " + QString(app_role() == AppRole::Server ? "server" : "client"));
+    appendLogInfo("starting " + QString(peerModeEnabled() ? "peer server and client" :
+        (app_role() == AppRole::Server ? "server" : "client")));
 
     qDebug() << args;
 
@@ -660,6 +741,23 @@ void MainWindow::start_cmd_app()
             show();
             QMessageBox::warning(this, tr("Program can not be started"), QString(tr("The executable<br><br>%1<br><br>could not be successfully started, although it does exist. Please check if you have sufficient permissions to run this program.").arg(app)));
             return;
+        }
+
+        if (peerModeEnabled()) {
+            peer_client_process_ = new QProcess(this);
+            connect(peer_client_process_, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+                    this, &MainWindow::cmd_app_finished);
+            connect(peer_client_process_, &QProcess::readyReadStandardOutput,
+                    this, &MainWindow::logOutput);
+            connect(peer_client_process_, &QProcess::readyReadStandardError,
+                    this, &MainWindow::logError);
+            peer_client_process_->start(peerClientApp, peerClientArgs);
+            if (!peer_client_process_->waitForStarted()) {
+                QMessageBox::warning(this, tr("Peer mode"),
+                                     tr("The peer client process could not be started."));
+                stopDesktop();
+                return;
+            }
         }
     }
 
@@ -803,7 +901,7 @@ bool MainWindow::serverArgs(QStringList& args, QString& app)
         args << "--log" << appConfig().logFilenameCmd();
     }
 
-    if (!appConfig().getRequireClientCertificate()) {
+    if (!peerModeEnabled() && !appConfig().getRequireClientCertificate()) {
         args << "--disable-client-cert-checking";
     }
 
@@ -854,22 +952,29 @@ void MainWindow::stopService()
 void MainWindow::stopDesktop()
 {
     QMutexLocker locker(&m_StopDesktopMutex);
-    if (!cmd_app_process_) {
+    if (!cmd_app_process_ && !peer_client_process_) {
         return;
     }
 
     appendLogInfo("stopping InputLeap desktop process");
 
-    if (cmd_app_process_->isOpen()) {
+    auto stopProcess = [](QProcess*& process) {
+        if (process == nullptr) {
+            return;
+        }
+        if (process->isOpen()) {
 #if SYSAPI_UNIX
-        kill(cmd_app_process_->processId(), SIGTERM);
-        cmd_app_process_->waitForFinished(5000);
+            kill(process->processId(), SIGTERM);
+            process->waitForFinished(5000);
 #endif
-        cmd_app_process_->close();
-    }
-
-    delete cmd_app_process_;
-    cmd_app_process_ = nullptr;
+            process->close();
+        }
+        delete process;
+        process = nullptr;
+    };
+    stopProcess(peer_client_process_);
+    stopProcess(cmd_app_process_);
+    peer_restart_pending_ = false;
 }
 
 void MainWindow::cmd_app_finished(int exitCode, QProcess::ExitStatus)
@@ -882,8 +987,14 @@ void MainWindow::cmd_app_finished(int exitCode, QProcess::ExitStatus)
     }
 
     if (m_ExpectedRunningState == kStarted) {
-        QTimer::singleShot(1000, this, &MainWindow::start_cmd_app);
-        appendLogInfo(QString("detected process not running, auto restarting"));
+        if (!peer_restart_pending_) {
+            peer_restart_pending_ = true;
+            QTimer::singleShot(1000, this, [this]() {
+                peer_restart_pending_ = false;
+                restart_cmd_app();
+            });
+            appendLogInfo(QString("detected process not running, auto restarting"));
+        }
     }
     else {
         set_connection_state(AppConnectionState::DISCONNECTED);
@@ -1064,7 +1175,8 @@ void MainWindow::updateZeroconfService()
                 m_pZeroconfService = nullptr;
             }
 
-            if (m_AppConfig->autoConfig() || app_role() == AppRole::Server) {
+            if (m_AppConfig->autoConfig() || app_role() == AppRole::Server ||
+                peerModeEnabled()) {
                 m_pZeroconfService = new ZeroconfService(this);
             }
         }
@@ -1081,6 +1193,50 @@ void MainWindow::serverDetected(const QString name)
     if (ui_->m_pComboServerList->count() > 1) {
         ui_->m_pComboServerList->show();
     }
+}
+
+bool MainWindow::peerModeEnabled() const
+{
+    return ui_->m_pGroupPeer->isChecked();
+}
+
+QString MainWindow::peerNodeId() const
+{
+    return settings().value("peerNodeId").toString();
+}
+
+quint16 MainWindow::peerPort() const
+{
+    return static_cast<quint16>(appConfig().port());
+}
+
+void MainWindow::peerDetected(const QString& name, const QString& host, quint16 port,
+                              const QString& nodeId, const QString& capabilities,
+                              const QString& fingerprint)
+{
+    if (nodeId.isEmpty() || nodeId == peerNodeId()) {
+        return;
+    }
+    for (int row = 0; row < ui_->m_pListPeers->count(); ++row) {
+        if (ui_->m_pListPeers->item(row)->data(Qt::UserRole).toString() == nodeId) {
+            ui_->m_pListPeers->item(row)->setText(
+                tr("%1 — %2:%3 — capabilities %4")
+                    .arg(name, host).arg(port).arg(capabilities));
+            ui_->m_pListPeers->item(row)->setData(Qt::UserRole + 1, fingerprint);
+            ui_->m_pListPeers->item(row)->setData(Qt::UserRole + 2, host);
+            ui_->m_pListPeers->item(row)->setData(Qt::UserRole + 3, port);
+            ui_->m_pListPeers->item(row)->setData(Qt::UserRole + 4, capabilities);
+            return;
+        }
+    }
+    auto* item = new QListWidgetItem(
+        tr("%1 — %2:%3 — capabilities %4")
+            .arg(name, host).arg(port).arg(capabilities), ui_->m_pListPeers);
+    item->setData(Qt::UserRole, nodeId);
+    item->setData(Qt::UserRole + 1, fingerprint);
+    item->setData(Qt::UserRole + 2, host);
+    item->setData(Qt::UserRole + 3, port);
+    item->setData(Qt::UserRole + 4, capabilities);
 }
 
 void MainWindow::updateSSLFingerprint()
@@ -1147,6 +1303,62 @@ void MainWindow::on_m_pGroupServer_toggled(bool on)
     if (on) {
         updateZeroconfService();
     }
+}
+
+void MainWindow::on_m_pGroupPeer_toggled(bool)
+{
+    updateZeroconfService();
+}
+
+void MainWindow::on_m_pButtonTrustPeer_clicked()
+{
+    auto* item = ui_->m_pListPeers->currentItem();
+    if (item == nullptr) {
+        QMessageBox::information(this, tr("Peer trust"),
+                                 tr("Select a discovered peer first."));
+        return;
+    }
+
+    bool validNodeId = false;
+    const auto nodeIdText = item->data(Qt::UserRole).toString();
+    const auto nodeId = nodeIdText.toULongLong(&validNodeId, 16);
+    const auto fingerprintText = item->data(Qt::UserRole + 1).toString();
+    const auto fingerprint = inputleap::FingerprintDatabase::parse_db_line(
+        fingerprintText.toStdString());
+    if (!validNodeId || nodeId == 0 || !fingerprint.valid()) {
+        QMessageBox::warning(this, tr("Peer trust"),
+                             tr("The peer did not advertise a valid TLS identity."));
+        return;
+    }
+
+    const auto trustPath = inputleap::DataDirectories::trusted_peers_ssl_fingerprints_path();
+    inputleap::fs::create_directories(trustPath.parent_path());
+    inputleap::FingerprintDatabase trust;
+    trust.read(trustPath);
+    trust.add_trusted(fingerprint);
+    trust.write(trustPath);
+
+    inputleap::PeerIdentityDatabase identities;
+    const auto identitiesPath = inputleap::DataDirectories::peer_identities_path();
+    identities.read(identitiesPath);
+    identities.trust(nodeId, fingerprint);
+    identities.write(identitiesPath);
+
+    settings().beginGroup("peers");
+    settings().beginGroup(nodeIdText);
+    settings().setValue("name", item->text().section(" — ", 0, 0));
+    settings().setValue("host", item->data(Qt::UserRole + 2));
+    settings().setValue("port", item->data(Qt::UserRole + 3));
+    settings().setValue("capabilities", item->data(Qt::UserRole + 4));
+    settings().setValue("fingerprint", fingerprintText);
+    settings().endGroup();
+    settings().endGroup();
+    settings().sync();
+
+    ui_->m_pLineEditHostname->setText(item->data(Qt::UserRole + 2).toString());
+    ui_->m_pCheckBoxAutoConfig->setChecked(false);
+    autoAddScreen(item->text().section(" — ", 0, 0));
+    appendLogInfo(tr("trusted peer identity %1").arg(nodeIdText));
 }
 
 bool MainWindow::on_m_pButtonBrowseConfigFile_clicked()

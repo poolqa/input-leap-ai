@@ -22,6 +22,8 @@
 #include "base/IEventQueueBuffer.h"
 
 #include <Carbon/Carbon.h>
+#include <condition_variable>
+#include <mutex>
 
 namespace inputleap {
 
@@ -42,6 +44,8 @@ private:
     EventRef m_event;
     IEventQueue* m_eventQueue;
     EventQueueRef m_carbonEventQueue;
+    mutable std::mutex m_wakeMutex;
+    std::condition_variable m_wakeCondition;
 };
 
 } // namespace inputleap

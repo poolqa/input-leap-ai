@@ -48,12 +48,29 @@ void ZeroconfRegister::registerService(const ZeroconfRecord& record,
     }
 #endif
 
+    TXTRecordRef txtRecord;
+    TXTRecordCreate(&txtRecord, 0, nullptr);
+    for (auto it = record.txtRecords.cbegin(); it != record.txtRecords.cend(); ++it) {
+        const auto key = it.key().toUtf8();
+        const auto value = it.value().toUtf8();
+        const auto txtError = TXTRecordSetValue(&txtRecord, key.constData(),
+                                                static_cast<uint8_t>(value.size()),
+                                                value.constData());
+        if (txtError != kDNSServiceErr_NoError) {
+            TXTRecordDeallocate(&txtRecord);
+            Q_EMIT error(txtError);
+            return;
+        }
+    }
+
     DNSServiceErrorType err = DNSServiceRegister(&m_DnsServiceRef,
         kDNSServiceFlagsNoAutoRename, 0,
         record.serviceName.toUtf8().constData(),
         record.registeredType.toUtf8().constData(),
         record.replyDomain.isEmpty() ? nullptr : record.replyDomain.toUtf8().constData(),
-        nullptr, bigEndianPort, 0, nullptr, registerService, this);
+        nullptr, bigEndianPort, TXTRecordGetLength(&txtRecord),
+        TXTRecordGetBytesPtr(&txtRecord), registerService, this);
+    TXTRecordDeallocate(&txtRecord);
 
     if (err != kDNSServiceErr_NoError) {
         Q_EMIT error(err);

@@ -17,6 +17,7 @@
  */
 
 #include "platform/XWindowsScreen.h"
+#include "platform/XWindowsSyntheticInput.h"
 
 #include "platform/XKBUtil.h"
 #include "platform/XWindowsClipboard.h"
@@ -177,6 +178,7 @@ XWindowsScreen::~XWindowsScreen()
     m_keyState = nullptr;
     m_screensaver = nullptr;
     if (m_display != nullptr) {
+        forget_xwindows_synthetic_requests(m_display);
 		// FIXME -- is it safe to clean up the IC and IM without a display?
         if (m_ic != nullptr) {
             m_impl->XDestroyIC(m_ic);
@@ -782,7 +784,8 @@ void
 XWindowsScreen::fakeMouseButton(ButtonID button, bool press)
 {
 	const unsigned int xButton = mapButtonToX(button);
-	if (xButton > 0 && xButton < 11) {
+    if (xButton > 0 && xButton < 11) {
+        mark_xwindows_synthetic_request(m_display, NextRequest(m_display));
         m_impl->XTestFakeButtonEvent(m_display, xButton,
 							press ? True : False, CurrentTime);
         m_impl->XFlush(m_display);
@@ -792,9 +795,11 @@ XWindowsScreen::fakeMouseButton(ButtonID button, bool press)
 void XWindowsScreen::fakeMouseMove(std::int32_t x, std::int32_t y)
 {
 	if (m_xinerama && m_xtestIsXineramaUnaware) {
+        mark_xwindows_synthetic_request(m_display, NextRequest(m_display));
         m_impl->XWarpPointer(m_display, None, m_root, 0, 0, 0, 0, x, y);
 	}
 	else {
+		mark_xwindows_synthetic_request(m_display, NextRequest(m_display));
 		XTestFakeMotionEvent(m_display, DefaultScreen(m_display),
 							x, y, CurrentTime);
 	}
@@ -808,6 +813,7 @@ void XWindowsScreen::fakeMouseRelativeMove(std::int32_t dx, std::int32_t dy) con
 //		m_impl->XWarpPointer(m_display, None, m_root, 0, 0, 0, 0, x, y);
 	}
 	else {
+        mark_xwindows_synthetic_request(m_display, NextRequest(m_display));
         m_impl->XTestFakeRelativeMotionEvent(m_display, dx, dy, CurrentTime);
 	}
     m_impl->XFlush(m_display);
@@ -849,7 +855,9 @@ void XWindowsScreen::fakeMouseWheel(std::int32_t xDelta, std::int32_t yDelta) co
 
 	// send as many clicks as necessary
     for (; numEvents > 0; numEvents--) {
+        mark_xwindows_synthetic_request(m_display, NextRequest(m_display));
         m_impl->XTestFakeButtonEvent(m_display, xButton, True, CurrentTime);
+        mark_xwindows_synthetic_request(m_display, NextRequest(m_display));
         m_impl->XTestFakeButtonEvent(m_display, xButton, False, CurrentTime);
 	}
 
@@ -1109,6 +1117,11 @@ XWindowsScreen::handle_system_event(const Event& event)
 {
     XEvent* xevent = event.get_data_as<XEvent*>();
     assert(xevent != nullptr);
+
+    if (m_isPrimary &&
+        consume_xwindows_synthetic_event(m_display, xevent->xany.serial)) {
+        return;
+    }
 
 	// update key state
 	bool isRepeat = false;

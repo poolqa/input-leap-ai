@@ -33,9 +33,11 @@ namespace inputleap {
 // 1.4:  adds crypto support
 // 1.5:  adds file transfer and removes home brew crypto
 // 1.6:  adds clipboard streaming
+// 1.7:  adds peer capability negotiation
 // NOTE: with new version, InputLeap minor version should increment
 static const std::int16_t kProtocolMajorVersion = 1;
-static const std::int16_t kProtocolMinorVersion = 6;
+static const std::int16_t kProtocolMinorVersion = 7;
+static const std::int16_t kProtocolMinorVersionOldest = 6;
 
 // default contact port number
 static const std::uint16_t kDefaultPort = 24800;
@@ -181,6 +183,15 @@ extern const char*        kMsgCInfoAck;
 // should disconnect from the server.  the appropriate interval is
 // defined by an option.
 extern const char*        kMsgCKeepAlive;
+
+// peer capability query: primary -> secondary (protocol 1.7+)
+extern const char*        kMsgQPeerCaps;
+
+// peer capability response: secondary -> primary; $1 = capability bitmask
+extern const char*        kMsgDPeerCaps;
+
+// primary capability response: primary -> secondary; $1 = capability bitmask
+extern const char*        kMsgCPeerCaps;
 
 //
 // data codes

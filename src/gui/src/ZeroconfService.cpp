@@ -20,6 +20,10 @@
 #include "MainWindow.h"
 #include "ZeroconfRegister.h"
 #include "ZeroconfBrowser.h"
+#include "ZeroconfResolver.h"
+#include "common/DataDirectories.h"
+#include "inputleap/PeerConfig.h"
+#include "net/FingerprintDatabase.h"
 
 #include <QtNetwork>
 #include <QMessageBox>
@@ -42,6 +46,7 @@ static const QStringList preferedIPAddress(
 
 const char* ZeroconfService:: m_ServerServiceName = "_inputLeapServerZeroconf._tcp";
 const char* ZeroconfService:: m_ClientServiceName = "_inputLeapClientZeroconf._tcp";
+const char* ZeroconfService:: m_PeerServiceName = "_inputleap-peer._tcp";
 
 static void silence_avahi_warning()
 {
@@ -81,7 +86,19 @@ ZeroconfService::ZeroconfService(MainWindow* mainWindow) :
         zeroconf_browser_->browseForType(QLatin1String(m_ServerServiceName));
     }
 
-    connect(zeroconf_browser_.get(), &ZeroconfBrowser::error, this, &ZeroconfService::errorHandle);
+    if (zeroconf_browser_) {
+        connect(zeroconf_browser_.get(), &ZeroconfBrowser::error,
+                this, &ZeroconfService::errorHandle);
+    }
+
+    if (m_pMainWindow->peerModeEnabled() && registerPeerService()) {
+        peer_browser_ = std::make_unique<ZeroconfBrowser>(this);
+        connect(peer_browser_.get(), &ZeroconfBrowser::currentRecordsChanged,
+                this, &ZeroconfService::peerDetected);
+        connect(peer_browser_.get(), &ZeroconfBrowser::error,
+                this, &ZeroconfService::errorHandle);
+        peer_browser_->browseForType(QLatin1String(m_PeerServiceName));
+    }
 }
 
 ZeroconfService::~ZeroconfService() = default;
@@ -102,6 +119,41 @@ void ZeroconfService::clientDetected(const QList<ZeroconfRecord>& list)
         m_pMainWindow->appendLogInfo(tr("zeroconf client detected: %1").arg(
             record.serviceName));
         m_pMainWindow->autoAddScreen(record.serviceName);
+    }
+}
+
+void ZeroconfService::peerDetected(const QList<ZeroconfRecord>& list)
+{
+    for (const auto& record : list) {
+        auto* resolver = new ZeroconfResolver(record, this);
+        connect(resolver, &ZeroconfResolver::error,
+                this, &ZeroconfService::errorHandle);
+        connect(resolver, &ZeroconfResolver::resolved, this,
+                [this](const ZeroconfRecord& resolved) {
+            const auto protocol = resolved.txtRecords.value("proto");
+            const auto nodeId = resolved.txtRecords.value("node");
+            const auto capabilities = resolved.txtRecords.value("cap");
+            const auto tls = resolved.txtRecords.value("tls");
+            inputleap::PeerCapabilities parsedCapabilities = 0;
+            if (protocol != "2" || nodeId.isEmpty() || tls != "mutual" ||
+                !inputleap::peer_capabilities_from_string(
+                    capabilities.toStdString(), parsedCapabilities) ||
+                !inputleap::has_peer_capability(parsedCapabilities,
+                    inputleap::PeerCapability::MutualTls) ||
+                !inputleap::has_peer_capability(parsedCapabilities,
+                    inputleap::PeerCapability::SessionGeneration)) {
+                m_pMainWindow->appendLogError(
+                    tr("ignored incompatible zeroconf peer: %1")
+                        .arg(resolved.serviceName));
+                return;
+            }
+            m_pMainWindow->appendLogInfo(
+                tr("zeroconf peer detected: %1").arg(resolved.serviceName));
+            m_pMainWindow->peerDetected(resolved.serviceName, resolved.hostName,
+                                        resolved.port, nodeId, capabilities,
+                                        resolved.txtRecords.value("fp"));
+        });
+        resolver->start();
     }
 }
 
@@ -142,4 +194,39 @@ bool ZeroconfService::registerService(bool server)
     }
 
     return result;
+}
+
+bool ZeroconfService::registerPeerService()
+{
+    QMap<QString, QString> attributes;
+    attributes.insert("proto", "2");
+    attributes.insert("node", m_pMainWindow->peerNodeId());
+    attributes.insert("cap", QString::fromStdString(
+        inputleap::peer_capabilities_to_string(inputleap::kDefaultPeerCapabilities)));
+    attributes.insert("tls", "mutual");
+
+    inputleap::FingerprintDatabase fingerprints;
+    fingerprints.read(inputleap::DataDirectories::local_ssl_fingerprints_path());
+    for (const auto& fingerprint : fingerprints.fingerprints()) {
+        if (fingerprint.algorithm == "sha256") {
+            attributes.insert("fp", QString::fromStdString(
+                inputleap::FingerprintDatabase::to_db_line(fingerprint)));
+            break;
+        }
+    }
+    if (!attributes.contains("fp")) {
+        m_pMainWindow->appendLogError(
+            tr("peer discovery requires a local TLS certificate"));
+        return false;
+    }
+
+    peer_register_ = std::make_unique<ZeroconfRegister>(this);
+    connect(peer_register_.get(), &ZeroconfRegister::error,
+            this, &ZeroconfService::errorHandle);
+    peer_register_->registerService(
+        ZeroconfRecord(m_pMainWindow->getScreenName(),
+                       QLatin1String(m_PeerServiceName), QString(), QString(), 0,
+                       attributes),
+        m_pMainWindow->peerPort());
+    return true;
 }

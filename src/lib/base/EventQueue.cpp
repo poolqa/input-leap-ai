@@ -57,6 +57,13 @@ EventQueue::~EventQueue()
 void
 EventQueue::loop()
 {
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        // Server shutdown deliberately runs a short, nested event loop while
+        // waiting for clients to disconnect.  That loop uses the safe simple
+        // buffer installed when the platform loop stopped.
+        is_stopping_ = false;
+    }
     buffer_->init();
     {
         std::unique_lock<std::mutex> lock(ready_mutex_);
@@ -77,6 +84,25 @@ EventQueue::loop()
         dispatchEvent(event);
         Event::deleteData(event);
         getEvent(event);
+    }
+
+    // The macOS event buffer belongs to the thread that initialized its
+    // Carbon event queue.  Once this loop returns that queue is no longer a
+    // valid destination, while screen and socket teardown can still produce
+    // events.  Stop accepting events and detach the platform buffer before
+    // leaving its owning thread.
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        is_stopping_ = true;
+        is_ready_ = false;
+
+        buffer_.reset();
+        for (auto& event_entry : m_events) {
+            Event::deleteData(event_entry.second);
+        }
+        m_events.clear();
+        m_oldEventIDs.clear();
+        buffer_ = std::make_unique<SimpleEventQueueBuffer>();
     }
 }
 
@@ -202,10 +228,24 @@ void EventQueue::add_event(Event&& event)
         dispatchEvent(event);
         Event::deleteData(event);
     }
-    else if (!is_ready_) {
-        m_pending.push(std::move(event));
-    } else {
-        add_event_to_buffer(std::move(event));
+    else {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (is_stopping_) {
+            Event::deleteData(event);
+        }
+        else if (!is_ready_) {
+            m_pending.push(std::move(event));
+        }
+        else {
+            // Store the event data locally, then place its ID in the platform
+            // queue while holding the same lock used when the loop detaches
+            // that queue during shutdown.
+            const std::uint32_t eventID = save_event(std::move(event));
+            if (!buffer_->addEvent(eventID)) {
+                auto removed_event = removeEvent(eventID);
+                Event::deleteData(removed_event);
+            }
+        }
     }
 }
 
@@ -449,7 +489,8 @@ EventQueue::waitForReady() const
 {
     std::unique_lock<std::mutex> lock(ready_mutex_);
 
-    if (!ready_cv_.wait_for(lock, std::chrono::seconds{10}, [this](){ return is_ready_; })) {
+    if (!ready_cv_.wait_for(lock, std::chrono::seconds{10},
+                            [this](){ return is_ready_.load(); })) {
         throw std::runtime_error("event queue is not ready within 5 sec");
     }
 }

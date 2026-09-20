@@ -19,6 +19,7 @@
 #include "platform/OSXKeyState.h"
 #include "platform/OSXUchrKeyResource.h"
 #include "platform/OSXMediaKeySupport.h"
+#include "platform/OSXSyntheticInput.h"
 #include "arch/Arch.h"
 #include "base/Log.h"
 
@@ -129,14 +130,19 @@ static const KeyEntry    s_controlKeys[] = {
 // OSXKeyState
 //
 
-OSXKeyState::OSXKeyState(IEventQueue* events) :
-    KeyState(events)
+OSXKeyState::OSXKeyState(IEventQueue* events, bool markSyntheticEvents) :
+    KeyState(events),
+    m_markSyntheticEvents(markSyntheticEvents),
+    m_syntheticModifierFlags(0)
 {
     init();
 }
 
-OSXKeyState::OSXKeyState(IEventQueue* events, inputleap::KeyMap& keyMap) :
-    KeyState(events, keyMap)
+OSXKeyState::OSXKeyState(IEventQueue* events, inputleap::KeyMap& keyMap,
+                         bool markSyntheticEvents) :
+    KeyState(events, keyMap),
+    m_markSyntheticEvents(markSyntheticEvents),
+    m_syntheticModifierFlags(0)
 {
     init();
 }
@@ -497,6 +503,60 @@ static io_connect_t getEventDriver(void)
 
 void OSXKeyState::postHIDVirtualKey(const std::uint8_t virtualKeyCode, const bool postDown)
 {
+    if (m_markSyntheticEvents) {
+        CGEventFlags modifier = 0;
+        switch (virtualKeyCode) {
+        case kVK_Shift:
+        case kVK_RightShift:
+            modifier = kCGEventFlagMaskShift;
+            m_shiftPressed = postDown;
+            break;
+        case kVK_Command:
+        case kVK_RightCommand:
+            modifier = kCGEventFlagMaskCommand;
+            m_superPressed = postDown;
+            break;
+        case kVK_Option:
+        case kVK_RightOption:
+            modifier = kCGEventFlagMaskAlternate;
+            m_altPressed = postDown;
+            break;
+        case kVK_Control:
+        case kVK_RightControl:
+            modifier = kCGEventFlagMaskControl;
+            m_controlPressed = postDown;
+            break;
+        case kVK_CapsLock:
+            modifier = kCGEventFlagMaskAlphaShift;
+            m_capsPressed = postDown;
+            break;
+        default:
+            break;
+        }
+
+        if (modifier != 0) {
+            if (postDown) {
+                m_syntheticModifierFlags |= modifier;
+            }
+            else {
+                m_syntheticModifierFlags &= ~modifier;
+            }
+        }
+
+        CGEventSourceRef source = CGEventSourceCreate(kCGEventSourceStateHIDSystemState);
+        CGEventRef event = CGEventCreateKeyboardEvent(source, virtualKeyCode, postDown);
+        if (event != nullptr) {
+            CGEventSetFlags(event, m_syntheticModifierFlags);
+            mark_osx_synthetic_input(event);
+            CGEventPost(kCGHIDEventTap, event);
+            CFRelease(event);
+        }
+        if (source != nullptr) {
+            CFRelease(source);
+        }
+        return;
+    }
+
     static std::uint32_t modifiers = 0;
 
     NXEventData event;

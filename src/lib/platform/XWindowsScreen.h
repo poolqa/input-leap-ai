@@ -86,6 +86,7 @@ public:
     void setOptions(const OptionsList& options) override;
     void setSequenceNumber(std::uint32_t) override;
     bool isPrimary() const override;
+    bool supportsHybridInput() const override { return true; }
 
 protected:
     // IPlatformScreen overrides

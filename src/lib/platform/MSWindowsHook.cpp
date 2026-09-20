@@ -18,6 +18,7 @@
  */
 
 #include "platform/MSWindowsHook.h"
+#include "platform/MSWindowsSyntheticInput.h"
 #include "platform/MSWindowsHookResource.h"
 #include "platform/ImmuneKeysReader.h"
 #include "inputleap/protocol_types.h"
@@ -410,6 +411,9 @@ keyboardLLHook(int code, WPARAM wParam, LPARAM lParam)
     KBDLLHOOKSTRUCT* info = reinterpret_cast<KBDLLHOOKSTRUCT*>(lParam);
 
     // do not filter non-action events nor immune keys
+    if (code == HC_ACTION && info->dwExtraInfo == kMSWindowsSyntheticInputMarker) {
+        return CallNextHookEx(g_hkKeyboard, code, wParam, lParam);
+    }
     if (code == HC_ACTION && !is_immune_key(info->vkCode)) {
         WPARAM wParam = info->vkCode;
         LPARAM lParam = 1;                            // repeat code
@@ -549,6 +553,9 @@ mouseLLHook(int code, WPARAM wParam, LPARAM lParam)
     if (code == HC_ACTION) {
         // decode the message
         MSLLHOOKSTRUCT* info = reinterpret_cast<MSLLHOOKSTRUCT*>(lParam);
+        if (info->dwExtraInfo == kMSWindowsSyntheticInputMarker) {
+            return CallNextHookEx(g_hkMouse, code, wParam, lParam);
+        }
         std::int32_t x = static_cast<std::int32_t>(info->pt.x);
         std::int32_t y = static_cast<std::int32_t>(info->pt.y);
         std::int32_t w = static_cast<std::int16_t>(HIWORD(info->mouseData));

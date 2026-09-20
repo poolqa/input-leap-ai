@@ -148,6 +148,15 @@ public:
     */
     virtual bool isPrimary() const = 0;
 
+    //! Test whether this platform screen can capture and synthesize input at once.
+    virtual bool supportsHybridInput() const { return false; }
+
+    //! Release mouse buttons held by synthesized remote input, if tracked.
+    virtual void fakeAllMouseButtonsUp() { }
+
+    //! Wait until the platform UI event loop is ready, when required.
+    virtual void waitForPlatformEventLoop() { }
+
     //@}
 
     virtual std::string& getDraggingFilename() = 0;

@@ -207,6 +207,22 @@ TEST(GenericArgsParsingTests, parseGenericArgs_noHookCmd_noHookTrue)
     EXPECT_EQ(a.size(), 0); // all args consumed
 }
 
+TEST(GenericArgsParsingTests, parseGenericArgs_peerMode_enablesPeerProtocol)
+{
+    const int argc = 2;
+    const char* command[argc] = { "stub", "--peer-mode" };
+    Argv argv(argc, command);
+
+    ArgParser parser(nullptr);
+    ArgsBase args;
+    parser.setArgsBase(args);
+
+    EXPECT_FALSE(args.m_peerMode);
+    EXPECT_TRUE(parser.parseGenericArgs(argv));
+    EXPECT_TRUE(args.m_peerMode);
+    EXPECT_EQ(0u, argv.size());
+}
+
 TEST(GenericArgsParsingTests, parseGenericArgs_helpCmd_showHelp)
 {
     g_helpShowed = false;

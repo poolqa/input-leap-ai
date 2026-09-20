@@ -32,7 +32,7 @@ class IStream;
 class ClientProxy1_6 : public ClientProxy {
 public:
     ClientProxy1_6(const std::string& name, std::unique_ptr<IClientConnection> backend,
-                   Server* server, IEventQueue* events);
+                   Server* server, IEventQueue* events, bool peer_protocol = false);
     ~ClientProxy1_6() override;
 
     Server* getServer() { return m_server; }
@@ -93,6 +93,7 @@ private:
 
     bool recvInfo();
     bool recvGrabClipboard();
+    bool recvPeerCapabilities();
 
 protected:
     struct ClientClipboard {
@@ -119,6 +120,8 @@ protected:
     double m_keepAliveRate;
     EventQueueTimer* m_keepAliveTimer;
     Server* m_server;
+    bool peer_protocol_{false};
+    std::uint32_t peer_capabilities_{0};
 };
 
 } // namespace inputleap

@@ -440,9 +440,7 @@ ClientApp::mainLoop()
     Thread thread([this](){ run_events_loop(); });
 
     // wait until carbon loop is ready
-    OSXScreen* screen = dynamic_cast<OSXScreen*>(
-        m_clientScreen->getPlatformScreen());
-    screen->waitForCarbonLoop();
+    m_clientScreen->getPlatformScreen()->waitForPlatformEventLoop();
 
     runCocoaApp();
 #else

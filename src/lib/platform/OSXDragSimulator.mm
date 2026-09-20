@@ -15,6 +15,7 @@
 #import "platform/OSXDragSimulator.h"
 
 #import "platform/OSXDragView.h"
+#import "platform/OSXSyntheticInput.h"
 
 #import <Foundation/Foundation.h>
 #import <CoreData/CoreData.h>
@@ -60,7 +61,26 @@ runCocoaApp()
 void
 stopCocoaLoop()
 {
-	[NSApp stop: g_dragWindow];
+	// The InputLeap event loop runs on a worker thread on macOS, but AppKit
+	// lifecycle operations must execute on the main thread.  Merely calling
+	// -stop: from the worker can leave -[NSApplication run] asleep forever.
+	dispatch_async(dispatch_get_main_queue(), ^{
+		[NSApp stop:nil];
+
+		// Wake the run loop so it observes the stop request immediately even
+		// when there is no user input pending.
+		NSEvent* wakeEvent = [NSEvent
+			otherEventWithType:NSEventTypeApplicationDefined
+			location:NSZeroPoint
+			modifierFlags:0
+			timestamp:0
+			windowNumber:0
+			context:nil
+			subtype:0
+			data1:0
+			data2:0];
+		[NSApp postEvent:wakeEvent atStart:NO];
+	});
 }
 
 void
@@ -89,6 +109,7 @@ fakeDragging(const char* str, int cursorX, int cursorY)
 	[g_dragView setFileExt:g_ext];
 
 	CGEventRef down = CGEventCreateMouseEvent(CGEventSourceCreate(kCGEventSourceStateHIDSystemState), kCGEventLeftMouseDown, CGPointMake(cursorX, cursorY), kCGMouseButtonLeft);
+	mark_osx_synthetic_input(down);
 	CGEventPost(kCGHIDEventTap, down);
 	});
 }

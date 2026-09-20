@@ -27,6 +27,7 @@
 #include "inputleap/option_types.h"
 #include "inputleap/protocol_types.h"
 #include "inputleap/Exceptions.h"
+#include "inputleap/PeerConfig.h"
 #include "io/IStream.h"
 #include "base/Log.h"
 #include "base/IEventQueue.h"
@@ -37,7 +38,8 @@
 
 namespace inputleap {
 
-ServerProxy::ServerProxy(Client* client, inputleap::IStream* stream, IEventQueue* events) :
+ServerProxy::ServerProxy(Client* client, inputleap::IStream* stream, IEventQueue* events,
+                         bool peer_protocol) :
     m_client(client),
     m_stream(stream),
     m_seqNum(0),
@@ -51,7 +53,8 @@ ServerProxy::ServerProxy(Client* client, inputleap::IStream* stream, IEventQueue
     m_keepAliveAlarm(0.0),
     m_keepAliveAlarmTimer(nullptr),
     m_parser(&ServerProxy::parseHandshakeMessage),
-    m_events(events)
+    m_events(events),
+    peer_protocol_(peer_protocol)
 {
     assert(m_client != nullptr);
     assert(m_stream != nullptr);
@@ -66,8 +69,9 @@ ServerProxy::ServerProxy(Client* client, inputleap::IStream* stream, IEventQueue
     m_events->add_handler(EventType::CLIPBOARD_SENDING, this,
                           [this](const auto& e){ handle_clipboard_sending_event(e); });
 
-    // send heartbeat
-    setKeepAliveRate(kKeepAliveRate);
+    // Keep-alive monitoring starts once the handshake is complete.  Starting
+    // the nine-second alarm here can race a capability/info handshake on a
+    // busy macOS event loop and incorrectly report a live server as dead.
 }
 
 ServerProxy::~ServerProxy()
@@ -149,7 +153,13 @@ void ServerProxy::handle_data()
 
 ServerProxy::EResult ServerProxy::parseHandshakeMessage(const std::uint8_t* code)
 {
-    if (memcmp(code, kMsgQInfo, 4) == 0) {
+    if (peer_protocol_ && memcmp(code, kMsgQPeerCaps, 4) == 0) {
+        queryPeerCapabilities();
+    }
+    else if (peer_protocol_ && memcmp(code, kMsgCPeerCaps, 4) == 0) {
+        peerCapabilities();
+    }
+    else if (memcmp(code, kMsgQInfo, 4) == 0) {
         queryInfo();
     }
 
@@ -162,6 +172,7 @@ ServerProxy::EResult ServerProxy::parseHandshakeMessage(const std::uint8_t* code
 
         // handshake is complete
         m_parser = &ServerProxy::parseMessage;
+        setKeepAliveRate(kKeepAliveRate);
         m_client->handshakeComplete();
     }
 
@@ -221,7 +232,10 @@ ServerProxy::EResult ServerProxy::parseHandshakeMessage(const std::uint8_t* code
 
 ServerProxy::EResult ServerProxy::parseMessage(const std::uint8_t* code)
 {
-    if (memcmp(code, kMsgDMouseMove, 4) == 0) {
+    if (peer_protocol_ && memcmp(code, kMsgCPeerCaps, 4) == 0) {
+        peerCapabilities();
+    }
+    else if (memcmp(code, kMsgDMouseMove, 4) == 0) {
         mouseMove();
     }
 
@@ -331,6 +345,21 @@ ServerProxy::EResult ServerProxy::parseMessage(const std::uint8_t* code)
     ProtocolUtil::writef(m_stream, kMsgCNoop);
 
     return kOkay;
+}
+
+void ServerProxy::queryPeerCapabilities()
+{
+    ProtocolUtil::writef(m_stream, kMsgDPeerCaps, kDefaultPeerCapabilities);
+}
+
+void ServerProxy::peerCapabilities()
+{
+    std::uint32_t capabilities = 0;
+    if (!ProtocolUtil::readf(m_stream, kMsgCPeerCaps + 4, &capabilities)) {
+        throw XBadClient("invalid peer capability response");
+    }
+    peer_capabilities_ = capabilities;
+    LOG_DEBUG1("server peer capabilities: 0x%08x", peer_capabilities_);
 }
 
 void ServerProxy::handle_keep_alive_alarm()

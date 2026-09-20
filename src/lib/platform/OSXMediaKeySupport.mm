@@ -13,6 +13,7 @@
  */
 
 #import "platform/OSXMediaKeySupport.h"
+#import "platform/OSXSyntheticInput.h"
 #import <Cocoa/Cocoa.h>
 #import <IOKit/hidsystem/ev_keymap.h>
 
@@ -148,6 +149,8 @@ fakeNativeMediaKey(KeyID id)
 					data1:(convertKeyIDToNXKeyType(id) << 16) | ((0xb) << 8)
 					data2:-1];
 	CGEventRef upEvent = [upRef CGEvent];
+	mark_osx_synthetic_input(downEvent);
+	mark_osx_synthetic_input(upEvent);
 	
     CGEventPost(kCGHIDEventTap, downEvent);
     CGEventPost(kCGHIDEventTap, upEvent);

@@ -17,6 +17,7 @@
  */
 
 #include "platform/XWindowsKeyState.h"
+#include "platform/XWindowsSyntheticInput.h"
 
 #include "platform/XKBUtil.h"
 #include "base/Log.h"
@@ -246,6 +247,7 @@ XWindowsKeyState::fakeKey(const Keystroke& keystroke)
                 break;
             }
         }
+        mark_xwindows_synthetic_request(m_display, NextRequest(m_display));
         m_impl->XTestFakeKeyEvent(m_display, keystroke.m_data.m_button.m_button,
                                   keystroke.m_data.m_button.m_press,
                                   CurrentTime);

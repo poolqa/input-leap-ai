@@ -46,8 +46,25 @@
 #include <sstream>
 #include <stdexcept>
 #include <fstream>
+#include <algorithm>
 
 namespace inputleap {
+
+namespace {
+
+PeerNodeId stable_node_id(const std::string& value)
+{
+    // FNV-1a is used only as a deterministic protocol-independent fallback.
+    // Peer mode replaces this with the configured node id during pairing.
+    PeerNodeId hash = 1469598103934665603ull;
+    for (const auto character : value) {
+        hash ^= static_cast<unsigned char>(character);
+        hash *= 1099511628211ull;
+    }
+    return hash == 0 ? 1 : hash;
+}
+
+} // namespace
 
 Client::Client(IEventQueue* events, const std::string& name, const NetworkAddress& address,
                ISocketFactory* socketFactory,
@@ -71,7 +88,11 @@ Client::Client(IEventQueue* events, const std::string& name, const NetworkAddres
     m_useSecureNetwork(args.m_enableCrypto),
     m_args(args),
     m_enableClipboard(true),
-    m_maximumClipboardSize(INT_MAX)
+    m_maximumClipboardSize(INT_MAX),
+    peer_node_id_(stable_node_id(address.getHostname())),
+    input_arbiter_(stable_node_id(name), [this](auto, auto, auto) {
+        m_screen->releaseInjectedInput();
+    })
 {
     assert(m_socketFactory != nullptr);
     assert(m_screen != nullptr);
@@ -228,6 +249,10 @@ void Client::getCursorPos(std::int32_t& x, std::int32_t& y) const
 
 void Client::enter(std::int32_t xAbs, std::int32_t yAbs, std::uint32_t, KeyModifierMask mask, bool)
 {
+    if (!input_arbiter_.request_inbound(peer_node_id_, peer_session_)) {
+        LOG_WARN("rejecting enter from stale or conflicting peer session");
+        return;
+    }
     m_active = true;
     m_screen->mouseMove(xAbs, yAbs);
     m_screen->enter(mask);
@@ -241,6 +266,9 @@ void Client::enter(std::int32_t xAbs, std::int32_t yAbs, std::uint32_t, KeyModif
 bool
 Client::leave()
 {
+    if (!input_arbiter_.should_apply_remote_input(peer_node_id_, peer_session_)) {
+        return false;
+    }
     m_active = false;
 
     m_screen->leave();
@@ -254,6 +282,7 @@ Client::leave()
         }
     }
 
+    input_arbiter_.release(peer_node_id_, peer_session_);
     return true;
 }
 
@@ -282,44 +311,52 @@ Client::setClipboardDirty(ClipboardID, bool)
 void
 Client::keyDown(KeyID id, KeyModifierMask mask, KeyButton button)
 {
+    if (!input_arbiter_.should_apply_remote_input(peer_node_id_, peer_session_)) return;
      m_screen->keyDown(id, mask, button);
 }
 
 void Client::keyRepeat(KeyID id, KeyModifierMask mask, std::int32_t count, KeyButton button)
 {
+    if (!input_arbiter_.should_apply_remote_input(peer_node_id_, peer_session_)) return;
      m_screen->keyRepeat(id, mask, count, button);
 }
 
 void
 Client::keyUp(KeyID id, KeyModifierMask mask, KeyButton button)
 {
+    if (!input_arbiter_.should_apply_remote_input(peer_node_id_, peer_session_)) return;
      m_screen->keyUp(id, mask, button);
 }
 
 void
 Client::mouseDown(ButtonID id)
 {
+    if (!input_arbiter_.should_apply_remote_input(peer_node_id_, peer_session_)) return;
      m_screen->mouseDown(id);
 }
 
 void
 Client::mouseUp(ButtonID id)
 {
+    if (!input_arbiter_.should_apply_remote_input(peer_node_id_, peer_session_)) return;
      m_screen->mouseUp(id);
 }
 
 void Client::mouseMove(std::int32_t x, std::int32_t y)
 {
+    if (!input_arbiter_.should_apply_remote_input(peer_node_id_, peer_session_)) return;
     m_screen->mouseMove(x, y);
 }
 
 void Client::mouseRelativeMove(std::int32_t dx, std::int32_t dy)
 {
+    if (!input_arbiter_.should_apply_remote_input(peer_node_id_, peer_session_)) return;
     m_screen->mouseRelativeMove(dx, dy);
 }
 
 void Client::mouseWheel(std::int32_t xDelta, std::int32_t yDelta)
 {
+    if (!input_arbiter_.should_apply_remote_input(peer_node_id_, peer_session_)) return;
     m_screen->mouseWheel(xDelta, yDelta);
 }
 
@@ -476,7 +513,7 @@ Client::setupScreen()
     assert(m_server == nullptr);
 
     m_ready  = false;
-    m_server = new ServerProxy(this, m_stream, m_events);
+    m_server = new ServerProxy(this, m_stream, m_events, m_serverSupportsPeerProtocol);
     m_events->add_handler(EventType::SCREEN_SHAPE_CHANGED, get_event_target(),
                           [this](const auto& e){ handle_shape_changed(); });
     m_events->add_handler(EventType::CLIPBOARD_GRABBED, get_event_target(),
@@ -521,6 +558,7 @@ void
 Client::cleanupScreen()
 {
     if (m_server != nullptr) {
+        m_screen->releaseInjectedInput();
         if (m_ready) {
             m_screen->disable();
             m_ready = false;
@@ -552,6 +590,7 @@ Client::cleanupStream()
 void
 Client::handle_connected()
 {
+    peer_session_ = session_generations_.next(peer_node_id_);
     LOG_DEBUG1("connected;  wait for hello");
     cleanupConnecting();
     setupConnection();
@@ -596,6 +635,7 @@ void Client::handle_output_error()
 
 void Client::handle_disconnected()
 {
+    input_arbiter_.disconnected(peer_node_id_, peer_session_);
     cleanupTimer();
     cleanupScreen();
     cleanupConnection();
@@ -644,19 +684,22 @@ void Client::handle_hello()
 
     // check versions
     LOG_DEBUG1("got hello version %d.%d", major, minor);
-    if (major < kProtocolMajorVersion ||
-        (major == kProtocolMajorVersion && minor < kProtocolMinorVersion)) {
+    if (major != kProtocolMajorVersion || minor < kProtocolMinorVersionOldest) {
         sendConnectionFailedEvent(XIncompatibleClient(major, minor).what());
         cleanupTimer();
         cleanupConnection();
         return;
     }
+    const auto maximumMinor = m_args.m_peerMode ? kProtocolMinorVersion : 6;
+    const auto negotiatedMinor = major == kProtocolMajorVersion
+        ? std::min<std::int16_t>(minor, maximumMinor) : maximumMinor;
+    m_serverSupportsPeerProtocol = m_args.m_peerMode && major == 1 && negotiatedMinor >= 7;
 
     // say hello back
-    LOG_DEBUG1("say hello version %d.%d", kProtocolMajorVersion, kProtocolMinorVersion);
+    LOG_DEBUG1("say hello version %d.%d", kProtocolMajorVersion, negotiatedMinor);
     ProtocolUtil::writef(m_stream, kMsgHelloBack,
                             kProtocolMajorVersion,
-                            kProtocolMinorVersion, &m_name);
+                            negotiatedMinor, &m_name);
 
     // now connected but waiting to complete handshake
     setupScreen();

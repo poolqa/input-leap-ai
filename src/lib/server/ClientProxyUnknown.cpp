@@ -33,12 +33,14 @@
 namespace inputleap {
 
 ClientProxyUnknown::ClientProxyUnknown(std::unique_ptr<inputleap::IStream> stream,
-                                       double timeout, Server* server, IEventQueue* events) :
+                                       double timeout, Server* server, IEventQueue* events,
+                                       bool peer_mode) :
     stream_(std::move(stream)),
     m_proxy(nullptr),
     m_ready(false),
     m_server(server),
-    m_events(events)
+    m_events(events),
+    peer_mode_(peer_mode)
 {
     assert(m_server != nullptr);
     m_events->add_handler(EventType::TIMER, this,
@@ -47,7 +49,8 @@ ClientProxyUnknown::ClientProxyUnknown(std::unique_ptr<inputleap::IStream> strea
     addStreamHandlers();
 
     LOG_DEBUG1("saying hello");
-    ProtocolUtil::writef(stream_.get(), kMsgHello, kProtocolMajorVersion, kProtocolMinorVersion);
+    ProtocolUtil::writef(stream_.get(), kMsgHello, kProtocolMajorVersion,
+                         peer_mode_ ? kProtocolMinorVersion : 6);
 }
 
 ClientProxyUnknown::~ClientProxyUnknown()
@@ -183,7 +186,14 @@ void ClientProxyUnknown::handle_data()
             if (major == 1) {
                 switch (minor) {
                 case 6:
-                    m_proxy = new ClientProxy1_6(name, std::move(conn), m_server, m_events);
+                    m_proxy = new ClientProxy1_6(name, std::move(conn), m_server, m_events,
+                                                  false);
+                    break;
+                case 7:
+                    if (peer_mode_) {
+                        m_proxy = new ClientProxy1_6(name, std::move(conn), m_server, m_events,
+                                                     true);
+                    }
                     break;
                 default:
                     break;

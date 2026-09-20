@@ -205,6 +205,48 @@
      </widget>
     </item>
     <item>
+     <widget class="QGroupBox" name="m_pGroupPeer">
+     <property name="title">
+       <string>Peer mode (off uses Legacy server/client mode)</string>
+      </property>
+      <property name="checkable">
+       <bool>true</bool>
+      </property>
+      <property name="checked">
+       <bool>false</bool>
+      </property>
+      <layout class="QVBoxLayout" name="peerModeLayout">
+       <item>
+        <widget class="QLabel" name="m_pLabelPeerIdentity">
+         <property name="text">
+          <string>Peer identity:</string>
+         </property>
+         <property name="textInteractionFlags">
+          <set>Qt::TextSelectableByMouse</set>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QLabel" name="m_pLabelDiscoveredPeers">
+         <property name="text">
+          <string>Discovered peers:</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QListWidget" name="m_pListPeers"/>
+       </item>
+       <item>
+        <widget class="QPushButton" name="m_pButtonTrustPeer">
+         <property name="text">
+          <string>Trust selected peer</string>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+    </item>
+    <item>
      <layout class="QHBoxLayout" name="horizontalLayout_3">
       <item>
        <widget class="QLabel" name="m_pLabelFingerprint">
@@ -374,10 +416,10 @@
   </action>
   <action name="m_pActionQuit">
    <property name="text">
-    <string>&amp;Quit</string>
+    <string>E&amp;xit</string>
    </property>
    <property name="statusTip">
-    <string>Quit</string>
+    <string>Exit InputLeap completely</string>
    </property>
    <property name="shortcut">
     <string notr="true">Ctrl+Q</string>

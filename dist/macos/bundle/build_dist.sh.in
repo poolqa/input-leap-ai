@@ -14,10 +14,10 @@ B_INPUTLEAPC="InputLeap.app/Contents/MacOS/input-leapc"
 B_INPUTLEAPS="InputLeap.app/Contents/MacOS/input-leaps"
 
 # Colorized output
-info() { tput bold; echo "$@"; tput sgr0 ; }
-error() { tput bold; tput setaf 1; echo "$@"; tput sgr0 ; }
-success() { tput bold; tput setaf 2; echo "$@"; tput sgr0 ; }
-warn() { tput bold; tput setaf 3; echo "$@"; tput sgr0 ; }
+info() { tput bold 2>/dev/null || true; echo "$@"; tput sgr0 2>/dev/null || true; }
+error() { tput bold 2>/dev/null || true; tput setaf 1 2>/dev/null || true; echo "$@"; tput sgr0 2>/dev/null || true; }
+success() { tput bold 2>/dev/null || true; tput setaf 2 2>/dev/null || true; echo "$@"; tput sgr0 2>/dev/null || true; }
+warn() { tput bold 2>/dev/null || true; tput setaf 3 2>/dev/null || true; echo "$@"; tput sgr0 2>/dev/null || true; }
 
 info "Checking for bundle contents"
 if [ ! -d "InputLeap.app/Contents" ]; then
@@ -37,19 +37,31 @@ cp -r "$B_BINDIR" "$B_MACOS" || exit 1
 
 DEPLOYQT=@QT_DEPLOY_TOOL@
 
-# Use macdeployqt to include libraries and create dmg
+# Use macdeployqt to include libraries before signing the completed bundle.
+# Ad-hoc signing prevents macOS from terminating locally built bundles with
+# "Namespace CODESIGNING, Code 2 Invalid Page" and does not require an Apple
+# Developer identity.
 if [ "$B_BUILDTYPE" = "Release" ]; then
-    info "Building Release disk image (dmg)"
-    "$DEPLOYQT" InputLeap.app -dmg \
+    "$DEPLOYQT" InputLeap.app \
     -executable="$B_INPUTLEAPC" \
     -executable="$B_INPUTLEAPS" || exit 1
-    mv "InputLeap.dmg" "InputLeap-$B_VERSION.dmg" || exit 1
-    success "Created InputLeap-$B_VERSION.dmg"
 else
     warn "Disk image (dmg) only created for Release builds"
     info "Building debug bundle"
     "$DEPLOYQT" InputLeap.app -no-strip \
     -executable="$B_INPUTLEAPC" \
     -executable="$B_INPUTLEAPS" || exit 1
-    success "Bundle created successfully"
+fi
+
+info "Ad-hoc signing InputLeap.app"
+codesign --force --deep --sign - InputLeap.app || exit 1
+codesign --verify --deep --strict InputLeap.app || exit 1
+
+if [ "$B_BUILDTYPE" = "Release" ]; then
+    info "Building Release disk image (dmg)"
+    hdiutil create -volname InputLeap -srcfolder InputLeap.app -ov \
+        -format UDZO "InputLeap-$B_VERSION.dmg" || exit 1
+    success "Created InputLeap-$B_VERSION.dmg"
+else
+    success "Bundle created and signed successfully"
 fi

@@ -33,7 +33,7 @@ class Server;
 class ClientProxyUnknown : public EventTarget {
 public:
     ClientProxyUnknown(std::unique_ptr<IStream> stream, double timeout, Server* server,
-                       IEventQueue* events);
+                       IEventQueue* events, bool peer_mode = false);
     ~ClientProxyUnknown();
 
     //! @name manipulators
@@ -72,6 +72,7 @@ private:
     bool m_ready;
     Server* m_server;
     IEventQueue* m_events;
+    bool peer_mode_;
 };
 
 } // namespace inputleap

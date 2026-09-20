@@ -42,6 +42,7 @@ m_dropTarget(""),
 m_shouldExit(false),
 network_address(),
 m_enableCrypto(true),
+m_peerMode(false),
 m_profileDirectory(),
 m_pluginDirectory("")
 {

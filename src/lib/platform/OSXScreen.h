@@ -49,10 +49,17 @@ class Thread;
 class OSXKeyState;
 class OSXScreenSaver;
 
+enum class OSXScreenMode {
+    Primary,
+    Secondary,
+    Hybrid
+};
+
 //! Implementation of IPlatformScreen for OS X
 class OSXScreen : public PlatformScreen {
 public:
     OSXScreen(IEventQueue* events, bool isPrimary, bool autoShowHideCursor=true);
+    OSXScreen(IEventQueue* events, OSXScreenMode mode, bool autoShowHideCursor=true);
     virtual ~OSXScreen();
 
     IEventQueue* getEvents() const { return m_events; }
@@ -80,6 +87,7 @@ public:
     virtual void fakeMouseMove(std::int32_t x, std::int32_t y);
     virtual void fakeMouseRelativeMove(std::int32_t dx, std::int32_t dy) const;
     virtual void fakeMouseWheel(std::int32_t xDelta, std::int32_t yDelta) const;
+    void fakeAllMouseButtonsUp() override;
 
     // IPlatformScreen overrides
     virtual void enable();
@@ -96,11 +104,13 @@ public:
     virtual void setOptions(const OptionsList& options);
     virtual void setSequenceNumber(std::uint32_t);
     virtual bool isPrimary() const;
+    bool supportsHybridInput() const override;
     virtual void fakeDraggingFiles(DragFileList fileList);
     virtual std::string& getDraggingFilename();
 
     const std::string& getDropTarget() const { return m_dropTarget; }
     void waitForCarbonLoop() const;
+    void waitForPlatformEventLoop() override { waitForCarbonLoop(); }
 
 protected:
     // IPlatformScreen overrides
@@ -247,6 +257,7 @@ private:
 
     // true if screen is being used as a primary screen, false otherwise
     bool m_isPrimary;
+    bool m_isHybrid;
 
     // true if mouse has entered the screen
     bool m_isOnScreen;

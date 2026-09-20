@@ -41,18 +41,23 @@ public:
 private slots:
     void serverDetected(const QList<ZeroconfRecord>& list);
     void clientDetected(const QList<ZeroconfRecord>& list);
+    void peerDetected(const QList<ZeroconfRecord>& list);
     void errorHandle(DNSServiceErrorType errorCode);
 
 private:
     bool registerService(bool server);
+    bool registerPeerService();
 
 private:
     MainWindow* m_pMainWindow;
     ZeroconfServer m_zeroconfServer;
     std::unique_ptr<ZeroconfBrowser> zeroconf_browser_;
     std::unique_ptr<ZeroconfRegister> zeroconf_register_;
+    std::unique_ptr<ZeroconfBrowser> peer_browser_;
+    std::unique_ptr<ZeroconfRegister> peer_register_;
     bool m_ServiceRegistered;
 
     static const char* m_ServerServiceName;
     static const char* m_ClientServiceName;
+    static const char* m_PeerServiceName;
 };

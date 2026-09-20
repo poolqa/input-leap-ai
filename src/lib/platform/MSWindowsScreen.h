@@ -119,6 +119,7 @@ public:
     virtual void setOptions(const OptionsList& options);
     virtual void setSequenceNumber(std::uint32_t);
     virtual bool isPrimary() const;
+    bool supportsHybridInput() const override { return true; }
     virtual void fakeDraggingFiles(DragFileList fileList);
     virtual std::string& getDraggingFilename();
     virtual const std::string& getDropTarget() const;

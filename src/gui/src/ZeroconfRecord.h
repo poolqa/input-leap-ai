@@ -19,14 +19,18 @@
 
 #include <QtCore/QMetaType>
 #include <QtCore/QString>
+#include <QtCore/QMap>
 
 class ZeroconfRecord
 {
 public:
     ZeroconfRecord() {}
     ZeroconfRecord(const QString& name, const QString& regType,
-                   const QString& domain)
-        : serviceName(name), registeredType(regType), replyDomain(domain)
+                   const QString& domain, const QString& host = {},
+                   quint16 servicePort = 0,
+                   const QMap<QString, QString>& attributes = {})
+        : serviceName(name), registeredType(regType), replyDomain(domain),
+          hostName(host), port(servicePort), txtRecords(attributes)
     {}
     ZeroconfRecord(const char* name, const char* regType, const char* domain)
     {
@@ -45,6 +49,9 @@ public:
     QString serviceName;
     QString registeredType;
     QString replyDomain;
+    QString hostName;
+    quint16 port{0};
+    QMap<QString, QString> txtRecords;
 };
 
 Q_DECLARE_METATYPE(ZeroconfRecord)

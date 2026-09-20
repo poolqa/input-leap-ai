@@ -26,6 +26,8 @@
 #include "inputleap/DragInformation.h"
 #include "inputleap/INode.h"
 #include "inputleap/ClientArgs.h"
+#include "inputleap/InputArbiter.h"
+#include "inputleap/SessionGeneration.h"
 #include "net/Fwd.h"
 #include "net/NetworkAddress.h"
 #include "base/EventTypes.h"
@@ -217,6 +219,11 @@ private:
     ClientArgs m_args;
     bool m_enableClipboard;
     size_t m_maximumClipboardSize;
+    bool m_serverSupportsPeerProtocol{false};
+    PeerNodeId peer_node_id_{0};
+    PeerSessionId peer_session_{0};
+    SessionGeneration session_generations_;
+    InputArbiter input_arbiter_;
 };
 
 } // namespace inputleap

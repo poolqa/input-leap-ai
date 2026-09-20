@@ -39,8 +39,9 @@ class OSXKeyState : public KeyState {
 public:
     typedef std::vector<KeyID> KeyIDs;
 
-    OSXKeyState(IEventQueue* events);
-    OSXKeyState(IEventQueue* events, inputleap::KeyMap& keyMap);
+    explicit OSXKeyState(IEventQueue* events, bool markSyntheticEvents = false);
+    OSXKeyState(IEventQueue* events, inputleap::KeyMap& keyMap,
+                bool markSyntheticEvents = false);
     virtual ~OSXKeyState();
 
     //! @name modifiers
@@ -174,6 +175,8 @@ private:
     bool m_altPressed;
     bool m_superPressed;
     bool m_capsPressed;
+    bool m_markSyntheticEvents;
+    CGEventFlags m_syntheticModifierFlags;
 };
 
 } // namespace inputleap

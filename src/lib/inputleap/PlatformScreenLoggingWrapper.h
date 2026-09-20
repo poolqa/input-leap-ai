@@ -42,6 +42,9 @@ public:
     void setSequenceNumber(std::uint32_t) override;
     void setDraggingStarted(bool started) override;
     bool isPrimary() const override;
+    bool supportsHybridInput() const override;
+    void fakeAllMouseButtonsUp() override;
+    void waitForPlatformEventLoop() override;
 
     std::string& getDraggingFilename() override;
     void clearDraggingFilename() override;

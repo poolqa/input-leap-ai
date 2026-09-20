@@ -651,7 +651,7 @@ ServerApp::openClientListener(const NetworkAddress& address)
     ClientListener* listen = new ClientListener(
         address,
         std::make_unique<TCPSocketFactory>(m_events, getSocketMultiplexer()),
-        m_events, security_level);
+        m_events, security_level, args().m_peerMode);
 
     m_events->add_handler(EventType::CLIENT_LISTENER_CONNECTED, listen,
                           [this, listen](const auto& e){ handle_client_connected(e, listen); });
@@ -768,9 +768,7 @@ ServerApp::mainLoop()
     Thread thread([this](){ run_events_loop(); });
 
     // wait until carbon loop is ready
-    OSXScreen* screen = dynamic_cast<OSXScreen*>(
-        server_screen_->getPlatformScreen());
-    screen->waitForCarbonLoop();
+    server_screen_->getPlatformScreen()->waitForPlatformEventLoop();
 
     runCocoaApp();
 #else

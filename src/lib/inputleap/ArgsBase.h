@@ -49,6 +49,7 @@ public:
     bool m_shouldExit;
     std::string network_address;
     bool m_enableCrypto;
+    bool m_peerMode;
     inputleap::fs::path m_profileDirectory;
     inputleap::fs::path m_pluginDirectory;
     bool use_x11 = false;

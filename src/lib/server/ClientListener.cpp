@@ -33,11 +33,12 @@ namespace inputleap {
 ClientListener::ClientListener(const NetworkAddress& address,
                                std::unique_ptr<ISocketFactory> socket_factory,
                 IEventQueue* events,
-                               ConnectionSecurityLevel security_level) :
+                               ConnectionSecurityLevel security_level, bool peer_mode) :
     socket_factory_{std::move(socket_factory)},
     m_server(nullptr),
     m_events(events),
-    security_level_{security_level}
+    security_level_{security_level},
+    peer_mode_{peer_mode}
 {
     try {
         listen_ = socket_factory_->create_listen(ARCH->getAddrFamily(address.getAddress()),
@@ -146,7 +147,7 @@ void ClientListener::handle_client_accepted(IDataSocket* socket_ptr)
 
     // create proxy for unknown client
     ClientProxyUnknown* client = new ClientProxyUnknown(std::move(stream), 30.0, m_server,
-                                                        m_events);
+                                                        m_events, peer_mode_);
 
     m_newClients.insert(client);
 

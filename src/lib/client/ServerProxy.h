@@ -42,7 +42,8 @@ public:
     Process messages from the server on \p stream and forward to
     \p client.
     */
-    ServerProxy(Client* client, inputleap::IStream* stream, IEventQueue* events);
+    ServerProxy(Client* client, inputleap::IStream* stream, IEventQueue* events,
+                bool peer_protocol = false);
     ~ServerProxy();
 
     //! @name manipulators
@@ -104,6 +105,8 @@ private:
     void setOptions();
     void queryInfo();
     void infoAcknowledgment();
+    void queryPeerCapabilities();
+    void peerCapabilities();
     void fileChunkReceived();
     void dragInfoReceived();
     void handle_clipboard_sending_event(const Event&);
@@ -130,6 +133,8 @@ private:
 
     MessageParser m_parser;
     IEventQueue* m_events;
+    bool peer_protocol_{false};
+    std::uint32_t peer_capabilities_{0};
 };
 
 } // namespace inputleap

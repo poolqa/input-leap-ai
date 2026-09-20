@@ -40,7 +40,7 @@ public:
     // The factories are adopted.
     ClientListener(const NetworkAddress&,
                    std::unique_ptr<ISocketFactory> socket_factory, IEventQueue* events,
-                   ConnectionSecurityLevel security_level);
+                   ConnectionSecurityLevel security_level, bool peer_mode = false);
     ~ClientListener();
 
     //! @name manipulators
@@ -87,6 +87,7 @@ private:
     Server* m_server;
     IEventQueue* m_events;
     ConnectionSecurityLevel security_level_;
+    bool peer_mode_;
     UniquePtrContainer<IDataSocket> client_sockets_;
 };
 

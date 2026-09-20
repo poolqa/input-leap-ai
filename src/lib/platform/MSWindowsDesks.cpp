@@ -20,6 +20,7 @@
 #include "platform/MSWindowsDesks.h"
 
 #include "platform/MSWindowsScreen.h"
+#include "platform/MSWindowsSyntheticInput.h"
 #include "inputleap/IScreenSaver.h"
 #include "inputleap/XScreen.h"
 #include "mt/Thread.h"
@@ -462,7 +463,7 @@ void MSWindowsDesks::deskMouseMove(std::int32_t x, std::int32_t y) const
     mouse_event(MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE,
                             (DWORD)((65535.0f * x) / (w - 1) + 0.5f),
                             (DWORD)((65535.0f * y) / (h - 1) + 0.5f),
-                            0, 0);
+                            0, kMSWindowsSyntheticInputMarker);
 }
 
 void MSWindowsDesks::deskMouseRelativeMove(std::int32_t dx, std::int32_t dy) const
@@ -491,7 +492,7 @@ void MSWindowsDesks::deskMouseRelativeMove(std::int32_t dx, std::int32_t dy) con
     }
 
     // move relative to mouse position
-    mouse_event(MOUSEEVENTF_MOVE, dx, dy, 0, 0);
+    mouse_event(MOUSEEVENTF_MOVE, dx, dy, 0, kMSWindowsSyntheticInputMarker);
 
     // restore mouse speed & acceleration
     if (accelChanged) {
@@ -655,12 +656,14 @@ void MSWindowsDesks::desk_thread(Desk* desk)
             break;
 
         case INPUTLEAP_MSG_FAKE_KEY:
-            keybd_event(HIBYTE(msg.lParam), LOBYTE(msg.lParam), (DWORD)msg.wParam, 0);
+            keybd_event(HIBYTE(msg.lParam), LOBYTE(msg.lParam), (DWORD)msg.wParam,
+                        kMSWindowsSyntheticInputMarker);
             break;
 
         case INPUTLEAP_MSG_FAKE_BUTTON:
             if (msg.wParam != 0) {
-                mouse_event((DWORD)msg.wParam, 0, 0, (DWORD)msg.lParam, 0);
+                mouse_event((DWORD)msg.wParam, 0, 0, (DWORD)msg.lParam,
+                            kMSWindowsSyntheticInputMarker);
             }
             break;
 
@@ -676,10 +679,12 @@ void MSWindowsDesks::desk_thread(Desk* desk)
 
         case INPUTLEAP_MSG_FAKE_WHEEL:
             if (msg.lParam != 0) {
-                mouse_event(MOUSEEVENTF_WHEEL, 0, 0, (DWORD)msg.lParam, 0);
+                mouse_event(MOUSEEVENTF_WHEEL, 0, 0, (DWORD)msg.lParam,
+                            kMSWindowsSyntheticInputMarker);
             }
             else if (IsWindowsVistaOrGreater() && msg.wParam != 0) {
-                mouse_event(MOUSEEVENTF_HWHEEL, 0, 0, (DWORD)msg.wParam, 0);
+                mouse_event(MOUSEEVENTF_HWHEEL, 0, 0, (DWORD)msg.wParam,
+                            kMSWindowsSyntheticInputMarker);
             }
             break;
 

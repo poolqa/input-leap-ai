@@ -195,7 +195,7 @@ Screen::keyDown(KeyID id, KeyModifierMask mask, KeyButton button)
 
 void Screen::keyRepeat(KeyID id, KeyModifierMask mask, std::int32_t count, KeyButton button)
 {
-    assert(!m_isPrimary);
+    assert(!m_isPrimary || m_screen->supportsHybridInput());
     m_screen->fakeKeyRepeat(id, mask, count, button);
 }
 
@@ -219,19 +219,19 @@ Screen::mouseUp(ButtonID button)
 
 void Screen::mouseMove(std::int32_t x, std::int32_t y)
 {
-    assert(!m_isPrimary);
+    assert(!m_isPrimary || m_screen->supportsHybridInput());
     m_screen->fakeMouseMove(x, y);
 }
 
 void Screen::mouseRelativeMove(std::int32_t dx, std::int32_t dy)
 {
-    assert(!m_isPrimary);
+    assert(!m_isPrimary || m_screen->supportsHybridInput());
     m_screen->fakeMouseRelativeMove(dx, dy);
 }
 
 void Screen::mouseWheel(std::int32_t xDelta, std::int32_t yDelta)
 {
-    assert(!m_isPrimary);
+    assert(!m_isPrimary || m_screen->supportsHybridInput());
     m_screen->fakeMouseWheel(xDelta, yDelta);
 }
 
@@ -534,8 +534,16 @@ Screen::leavePrimary()
 void
 Screen::leaveSecondary()
 {
-    // release any keys we think are still down
+    releaseInjectedInput();
+}
+
+void
+Screen::releaseInjectedInput()
+{
+    // A peer can disappear without sending key/button-up messages.  Always
+    // unwind both classes of state before another generation is accepted.
     m_screen->fakeAllKeysUp();
+    m_screen->fakeAllMouseButtonsUp();
 }
 
 }

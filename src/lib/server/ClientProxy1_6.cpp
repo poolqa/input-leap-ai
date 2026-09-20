@@ -24,6 +24,7 @@
 #include "inputleap/Exceptions.h"
 #include "inputleap/FileChunk.h"
 #include "inputleap/StreamChunker.h"
+#include "inputleap/PeerConfig.h"
 #include "server/Server.h"
 #include "io/IStream.h"
 #include "base/Log.h"
@@ -36,14 +37,15 @@ namespace inputleap {
 
 ClientProxy1_6::ClientProxy1_6(const std::string& name,
                                std::unique_ptr<IClientConnection> backend,
-                               Server* server, IEventQueue* events) :
+                               Server* server, IEventQueue* events, bool peer_protocol) :
     ClientProxy(name, std::move(backend)),
     m_heartbeatTimer(nullptr),
     m_parser(&ClientProxy1_6::parseHandshakeMessage),
     m_events(events),
     m_keepAliveRate(kKeepAliveRate),
     m_keepAliveTimer(nullptr),
-    m_server{server}
+    m_server{server},
+    peer_protocol_{peer_protocol}
 {
     // install event handlers
     m_events->add_handler(EventType::STREAM_INPUT_READY, get_conn().get_event_target(),
@@ -65,6 +67,9 @@ ClientProxy1_6::ClientProxy1_6(const std::string& name,
 
     setHeartbeatRate(kHeartRate, kHeartRate * kHeartBeatsUntilDeath);
 
+    if (peer_protocol_) {
+        ProtocolUtil::writef(getStream(), kMsgQPeerCaps);
+    }
     get_conn().send_query_info_1_6();
 
     setHeartbeatRate(kKeepAliveRate, kKeepAliveRate * kKeepAlivesUntilDeath);
@@ -194,7 +199,10 @@ void ClientProxy1_6::handle_data()
 
 bool ClientProxy1_6::parseHandshakeMessage(const std::uint8_t* code)
 {
-    if (memcmp(code, kMsgCNoop, 4) == 0) {
+    if (peer_protocol_ && memcmp(code, kMsgDPeerCaps, 4) == 0) {
+        return recvPeerCapabilities();
+    }
+    else if (memcmp(code, kMsgCNoop, 4) == 0) {
         // discard no-ops
         LOG_DEBUG2("no-op from %s", getName().c_str());
         return true;
@@ -215,7 +223,10 @@ bool ClientProxy1_6::parseHandshakeMessage(const std::uint8_t* code)
 
 bool ClientProxy1_6::parseMessage(const std::uint8_t* code)
 {
-    if (memcmp(code, kMsgDFileTransfer, 4) == 0) {
+    if (peer_protocol_ && memcmp(code, kMsgDPeerCaps, 4) == 0) {
+        return recvPeerCapabilities();
+    }
+    else if (memcmp(code, kMsgDFileTransfer, 4) == 0) {
         fileChunkReceived();
         return true;
     } else if (memcmp(code, kMsgDDragInfo, 4) == 0) {
@@ -244,6 +255,18 @@ bool ClientProxy1_6::parseMessage(const std::uint8_t* code)
         return recvClipboard();
     }
     return false;
+}
+
+bool ClientProxy1_6::recvPeerCapabilities()
+{
+    std::uint32_t capabilities = 0;
+    if (!ProtocolUtil::readf(getStream(), kMsgDPeerCaps + 4, &capabilities)) {
+        return false;
+    }
+    peer_capabilities_ = capabilities;
+    ProtocolUtil::writef(getStream(), kMsgCPeerCaps, kDefaultPeerCapabilities);
+    LOG_DEBUG1("client peer capabilities: 0x%08x", peer_capabilities_);
+    return true;
 }
 
 void ClientProxy1_6::handle_disconnect()

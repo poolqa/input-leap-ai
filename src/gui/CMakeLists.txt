@@ -54,6 +54,7 @@ set(GUI_SOURCE_FILES
     src/TrashScreenWidget.cpp
     src/ZeroconfBrowser.cpp
     src/ZeroconfRegister.cpp
+    src/ZeroconfResolver.cpp
     src/ZeroconfServer.cpp
     src/ZeroconfService.cpp
     src/ZeroconfThread.cpp
@@ -94,6 +95,7 @@ set(GUI_HEADER_FILES
     src/ZeroconfBrowser.h
     src/ZeroconfRecord.h
     src/ZeroconfRegister.h
+    src/ZeroconfResolver.h
     src/ZeroconfServer.h
     src/ZeroconfService.h
     src/ZeroconfThread.h

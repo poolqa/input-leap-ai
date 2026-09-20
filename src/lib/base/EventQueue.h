@@ -26,6 +26,7 @@
 #include "base/Stopwatch.h"
 
 #include <condition_variable>
+#include <atomic>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -127,7 +128,8 @@ private:
 
     mutable std::mutex          ready_mutex_;
     mutable std::condition_variable ready_cv_;
-    bool                        is_ready_ = false;
+    std::atomic<bool>           is_ready_{false};
+    bool                        is_stopping_ = false;
     std::queue<Event> m_pending;
 };
 

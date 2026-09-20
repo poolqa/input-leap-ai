@@ -36,6 +36,7 @@
 #include "base/Log.h"
 #include "base/IEventQueue.h"
 #include "base/Time.h"
+#include "platform/OSXSyntheticInput.h"
 
 #include <math.h>
 #include <mach-o/dyld.h>
@@ -68,7 +69,14 @@ bool					OSXScreen::s_testedForGHOM = false;
 bool					OSXScreen::s_hasGHOM	    = false;
 
 OSXScreen::OSXScreen(IEventQueue* events, bool isPrimary, bool autoShowHideCursor) :
-	m_isPrimary(isPrimary),
+    OSXScreen(events, isPrimary ? OSXScreenMode::Primary : OSXScreenMode::Secondary,
+              autoShowHideCursor)
+{
+}
+
+OSXScreen::OSXScreen(IEventQueue* events, OSXScreenMode mode, bool autoShowHideCursor) :
+	m_isPrimary(mode != OSXScreenMode::Secondary),
+	m_isHybrid(mode == OSXScreenMode::Hybrid),
 	m_isOnScreen(m_isPrimary),
 	m_cursorPosValid(false),
 	MouseButtonEventMap(NumButtonIDs),
@@ -103,7 +111,7 @@ OSXScreen::OSXScreen(IEventQueue* events, bool isPrimary, bool autoShowHideCurso
 		m_displayID   = CGMainDisplayID();
 		updateScreenShape(m_displayID, 0);
         m_screensaver = new OSXScreenSaver(m_events, get_event_target());
-		m_keyState	  = new OSXKeyState(m_events);
+		m_keyState	  = new OSXKeyState(m_events, m_isHybrid);
 
 		// only needed when running as a server.
 		if (m_isPrimary) {
@@ -443,6 +451,7 @@ OSXScreen::postMouseEvent(CGPoint& pos) const
 	}
 
     CGEventRef event = CGEventCreateMouseEvent(nullptr, type, pos, static_cast<CGMouseButton>(button));
+    mark_osx_synthetic_input(event);
 
     // Dragging events also need the click state
     CGEventSetIntegerValueField(event, kCGMouseEventClickState, m_clickState);
@@ -529,6 +538,7 @@ OSXScreen::fakeMouseButton(ButtonID id, bool press)
     CGEventType type = thisButtonMap[state];
 
     CGEventRef event = CGEventCreateMouseEvent(nullptr, type, pos, static_cast<CGMouseButton>(index));
+    mark_osx_synthetic_input(event);
 
     CGEventSetIntegerValueField(event, kCGMouseEventClickState, m_clickState);
 
@@ -581,6 +591,17 @@ void OSXScreen::get_drop_target_thread()
 	LOG_WARN("drag drop not supported");
 #endif
 	m_fakeDraggingStarted = false;
+}
+
+void OSXScreen::fakeAllMouseButtonsUp()
+{
+    for (;;) {
+        const auto button = m_buttonState.getFirstButtonDown();
+        if (button < 0) {
+            break;
+        }
+        fakeMouseButton(static_cast<ButtonID>(button + 1), false);
+    }
 }
 
 void OSXScreen::fakeMouseMove(std::int32_t x, std::int32_t y)
@@ -638,7 +659,8 @@ void OSXScreen::fakeMouseWheel(std::int32_t xDelta, std::int32_t yDelta) const
 		CGEventRef scrollEvent = CGEventCreateScrollWheelEvent(
             nullptr, kCGScrollEventUnitLine, 2,
             map_scroll_wheel_to_osx(yDelta),
-            -map_scroll_wheel_to_osx(xDelta));
+			-map_scroll_wheel_to_osx(xDelta));
+		mark_osx_synthetic_input(scrollEvent);
 
         // Fix for sticky keys
         CGEventFlags modifiers = m_keyState->getModifierStateAsOSXFlags();
@@ -937,6 +959,11 @@ bool
 OSXScreen::isPrimary() const
 {
 	return m_isPrimary;
+}
+
+bool OSXScreen::supportsHybridInput() const
+{
+    return m_isHybrid;
 }
 
 void OSXScreen::sendEvent(EventType type, EventDataBase* data) const
@@ -1849,6 +1876,10 @@ OSXScreen::handleCGInputEvent(CGEventTapProxy proxy,
 {
 	OSXScreen* screen = (OSXScreen*)refcon;
 	CGPoint pos;
+
+	if (!should_forward_osx_captured_input(event)) {
+		return event;
+	}
 
 	switch(type) {
 		case kCGEventLeftMouseDown:

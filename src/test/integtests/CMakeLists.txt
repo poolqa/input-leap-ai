@@ -35,6 +35,7 @@ if (BUILD_CARBON)
         platform/OSXClipboardTests.cpp
         platform/OSXKeyStateTests.cpp
         platform/OSXScreenTests.cpp
+        platform/OSXSyntheticInputTests.cpp
     )
     set(carbon_headers)
 endif()

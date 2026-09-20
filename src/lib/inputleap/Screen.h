@@ -219,6 +219,9 @@ public:
     */
     void fakeInputEnd();
 
+    //! Release all input synthesized by a remote peer after disconnect.
+    void releaseInjectedInput();
+
     //! Change dragging status
     void setDraggingStarted(bool started);
 

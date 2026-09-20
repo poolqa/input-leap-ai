@@ -439,6 +439,9 @@ ArgParser::parseGenericArgs(Argv& argv)
     else if (argv.shift("--disable-crypto")) {
         argsBase().m_enableCrypto = false;
     }
+    else if (argv.shift("--peer-mode")) {
+        argsBase().m_peerMode = true;
+    }
     else if (argv.shift("--profile-dir", nullptr, &optarg)) {
         argsBase().m_profileDirectory = inputleap::fs::u8path(optarg);
     }
