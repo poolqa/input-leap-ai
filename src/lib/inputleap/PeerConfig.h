@@ -84,7 +84,7 @@ inline bool peer_capabilities_from_string(const std::string& text,
     errno = 0;
     const auto value = std::strtoull(text.c_str(), &end, 16);
     if (errno != 0 || end == text.c_str() || *end != '\0' ||
-        value > std::numeric_limits<PeerCapabilities>::max()) {
+        value > (std::numeric_limits<PeerCapabilities>::max)()) {
         return false;
     }
     capabilities = static_cast<PeerCapabilities>(value);

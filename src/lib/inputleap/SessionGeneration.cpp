@@ -15,7 +15,7 @@ PeerSessionId SessionGeneration::next(PeerNodeId peer)
         return 0;
     }
     auto& generation = generations_[peer];
-    if (generation == std::numeric_limits<PeerSessionId>::max()) {
+    if (generation == (std::numeric_limits<PeerSessionId>::max)()) {
         generation = 1;
     }
     else {
