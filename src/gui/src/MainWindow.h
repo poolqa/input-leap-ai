@@ -175,11 +175,16 @@ public slots:
         void proofreadInfo();
         void windowStateChanged();
         void updateSSLFingerprint();
+        void applyPeerModeUi(bool enabled);
+        void ensurePeerPrerequisites();
 
     private:
         std::unique_ptr<Ui::MainWindow> ui_;
         QSettings& m_Settings;
         AppConfig* m_AppConfig;
+        ProcessMode legacy_process_mode_;
+        bool legacy_server_mode_{false};
+        bool updating_mode_ui_{false};
         QProcess* cmd_app_process_;
         QProcess* peer_client_process_{nullptr};
         AppConnectionState connection_state_ = AppConnectionState::DISCONNECTED;
@@ -213,6 +218,7 @@ private slots:
     void on_m_pCheckBoxAutoConfig_toggled(bool checked);
     void comboServerList_currentIndexChanged(QString );
     void on_m_pButtonReload_clicked();
+    void on_m_pButtonConfigurePeer_clicked();
     void installBonjour();
 
 };

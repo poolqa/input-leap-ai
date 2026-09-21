@@ -388,6 +388,26 @@ To automatically trust this fingerprint for future connections, click Yes. To re
         <source>Could not save configuration to file.</source>
         <translation type="finished">無法儲存設定至檔案。</translation>
     </message>
+    <message>
+        <source>Exit</source>
+        <translation type="finished">完全結束</translation>
+    </message>
+    <message>
+        <source>peer listener started; waiting for discovery and trust</source>
+        <translation type="finished">Peer 偵聽已啟動，正在等待發現與信任授權</translation>
+    </message>
+    <message>
+        <source>Peer trust</source>
+        <translation type="finished">Peer 信任授權</translation>
+    </message>
+    <message>
+        <source>Select a discovered peer first.</source>
+        <translation type="finished">請先選擇一台已發現的 Peer 電腦。</translation>
+    </message>
+    <message>
+        <source>Arrange this computer and trusted peers on the grid.</source>
+        <translation type="finished">請在方格中排列這台電腦與已信任的 Peer 電腦。</translation>
+    </message>
 </context>
 <context>
     <name>MainWindow</name>
@@ -556,6 +576,42 @@ To automatically trust this fingerprint for future connections, click Yes. To re
         <location filename="res/MainWindow.ui" line="486"/>
         <source>Run Wizard</source>
         <translation type="finished">執行設定精靈</translation>
+    </message>
+    <message>
+        <source>Legacy ser&amp;ver (share this computer's mouse and keyboard):</source>
+        <translation type="finished">傳統伺服器(&amp;V)（共用這台電腦的滑鼠與鍵盤）：</translation>
+    </message>
+    <message>
+        <source>Legacy &amp;client (use another computer's mouse and keyboard):</source>
+        <translation type="finished">傳統用戶端(&amp;C)（使用另一台電腦的滑鼠與鍵盤）：</translation>
+    </message>
+    <message>
+        <source>Peer mode (bidirectional)</source>
+        <translation type="finished">Peer 模式（雙向）</translation>
+    </message>
+    <message>
+        <source>Discover and trust the other computer on both ends. You may Start before a peer is trusted.</source>
+        <translation type="finished">請在兩台電腦上互相發現並信任對方。尚未信任 Peer 前也可以先按「啟動」。</translation>
+    </message>
+    <message>
+        <source>TLS: enabled automatically; Runtime: desktop process</source>
+        <translation type="finished">TLS：已自動啟用；執行模式：桌面程序</translation>
+    </message>
+    <message>
+        <source>Peer identity:</source>
+        <translation type="finished">Peer 身分：</translation>
+    </message>
+    <message>
+        <source>Discovered peers:</source>
+        <translation type="finished">已發現的 Peer：</translation>
+    </message>
+    <message>
+        <source>Trust selected peer</source>
+        <translation type="finished">信任選取的 Peer</translation>
+    </message>
+    <message>
+        <source>Configure Peer Layout...</source>
+        <translation type="finished">設定 Peer 畫面位置...</translation>
     </message>
 </context>
 <context>

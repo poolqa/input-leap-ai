@@ -25,7 +25,7 @@
        </sizepolicy>
       </property>
       <property name="title">
-       <string>Ser&amp;ver (share this computer's mouse and keyboard):</string>
+      <string>Legacy ser&amp;ver (share this computer's mouse and keyboard):</string>
       </property>
       <property name="checkable">
        <bool>true</bool>
@@ -139,7 +139,7 @@
        </sizepolicy>
       </property>
       <property name="title">
-       <string>&amp;Client (use another computer's mouse and keyboard):</string>
+       <string>Legacy &amp;client (use another computer's mouse and keyboard):</string>
       </property>
       <property name="checkable">
        <bool>true</bool>
@@ -207,7 +207,7 @@
     <item>
      <widget class="QGroupBox" name="m_pGroupPeer">
      <property name="title">
-       <string>Peer mode (off uses Legacy server/client mode)</string>
+       <string>Peer mode (bidirectional)</string>
       </property>
       <property name="checkable">
        <bool>true</bool>
@@ -216,6 +216,23 @@
        <bool>false</bool>
       </property>
       <layout class="QVBoxLayout" name="peerModeLayout">
+       <item>
+        <widget class="QLabel" name="m_pLabelPeerInstructions">
+         <property name="text">
+          <string>Discover and trust the other computer on both ends. You may Start before a peer is trusted.</string>
+         </property>
+         <property name="wordWrap">
+          <bool>true</bool>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QLabel" name="m_pLabelPeerRequirements">
+         <property name="text">
+          <string>TLS: enabled automatically; Runtime: desktop process</string>
+         </property>
+        </widget>
+       </item>
        <item>
         <widget class="QLabel" name="m_pLabelPeerIdentity">
          <property name="text">
@@ -237,9 +254,16 @@
         <widget class="QListWidget" name="m_pListPeers"/>
        </item>
        <item>
-        <widget class="QPushButton" name="m_pButtonTrustPeer">
+       <widget class="QPushButton" name="m_pButtonTrustPeer">
          <property name="text">
           <string>Trust selected peer</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QPushButton" name="m_pButtonConfigurePeer">
+         <property name="text">
+          <string>Configure Peer Layout...</string>
          </property>
         </widget>
        </item>

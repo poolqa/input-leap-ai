@@ -73,22 +73,24 @@ ZeroconfService::ZeroconfService(MainWindow* mainWindow) :
     m_ServiceRegistered(false)
 {
     silence_avahi_warning();
-    if (m_pMainWindow->app_role() == AppRole::Server) {
-        if (registerService(true)) {
-            zeroconf_browser_ = std::make_unique<ZeroconfBrowser>(this);
-            connect(zeroconf_browser_.get(), &ZeroconfBrowser::currentRecordsChanged, this, &ZeroconfService::clientDetected);
-            zeroconf_browser_->browseForType(QLatin1String(m_ClientServiceName));
+    if (!m_pMainWindow->peerModeEnabled()) {
+        if (m_pMainWindow->app_role() == AppRole::Server) {
+            if (registerService(true)) {
+                zeroconf_browser_ = std::make_unique<ZeroconfBrowser>(this);
+                connect(zeroconf_browser_.get(), &ZeroconfBrowser::currentRecordsChanged, this, &ZeroconfService::clientDetected);
+                zeroconf_browser_->browseForType(QLatin1String(m_ClientServiceName));
+            }
         }
-    }
-    else {
-        zeroconf_browser_ = std::make_unique<ZeroconfBrowser>(this);
-        connect(zeroconf_browser_.get(), &ZeroconfBrowser::currentRecordsChanged, this, &ZeroconfService::serverDetected);
-        zeroconf_browser_->browseForType(QLatin1String(m_ServerServiceName));
-    }
+        else {
+            zeroconf_browser_ = std::make_unique<ZeroconfBrowser>(this);
+            connect(zeroconf_browser_.get(), &ZeroconfBrowser::currentRecordsChanged, this, &ZeroconfService::serverDetected);
+            zeroconf_browser_->browseForType(QLatin1String(m_ServerServiceName));
+        }
 
-    if (zeroconf_browser_) {
-        connect(zeroconf_browser_.get(), &ZeroconfBrowser::error,
-                this, &ZeroconfService::errorHandle);
+        if (zeroconf_browser_) {
+            connect(zeroconf_browser_.get(), &ZeroconfBrowser::error,
+                    this, &ZeroconfService::errorHandle);
+        }
     }
 
     if (m_pMainWindow->peerModeEnabled() && registerPeerService()) {

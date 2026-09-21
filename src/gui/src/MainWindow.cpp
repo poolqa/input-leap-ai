@@ -116,6 +116,7 @@ MainWindow::MainWindow(QSettings& settings, AppConfig& appConfig) :
     ui_{std::make_unique<Ui::MainWindow>()},
     m_Settings(settings),
     m_AppConfig(&appConfig),
+    legacy_process_mode_(appConfig.processMode()),
     cmd_app_process_(nullptr),
     m_ServerConfig(&m_Settings, 5, 3, m_AppConfig->screenName(), this),
     m_pTempConfigFile(nullptr),
@@ -178,6 +179,9 @@ MainWindow::MainWindow(QSettings& settings, AppConfig& appConfig) :
     ui_->m_pLabelPadlock->setPixmap(QPixmap(":/res/icons/64x64/padlock.png").scaledToHeight(fontMetrics().height() * 1.5, Qt::SmoothTransformation));
     ui_->frame_fingerprint_details->hide();
 
+    if (peerModeEnabled()) {
+        ensurePeerPrerequisites();
+    }
     updateSSLFingerprint();
 
     connect(ui_->toolbutton_show_fingerprint, &QToolButton::clicked, this, [this](bool checked)
@@ -200,7 +204,8 @@ MainWindow::MainWindow(QSettings& settings, AppConfig& appConfig) :
 
 MainWindow::~MainWindow()
 {
-    if (appConfig().processMode() == Desktop) {
+    if (cmd_app_process_ != nullptr || peer_client_process_ != nullptr ||
+        appConfig().processMode() == Desktop) {
         m_ExpectedRunningState = kStopped;
         stopDesktop();
     }
@@ -223,6 +228,11 @@ MainWindow::~MainWindow()
 void MainWindow::open()
 {
     createTrayIcon();
+
+    // Discovery belongs to the GUI and must be available before the core is
+    // started.  This lets two fresh peer installations find one another before
+    // either side has selected or trusted the other computer.
+    updateZeroconfService();
 
     if (appConfig().getAutoHide()) {
         hide();
@@ -334,10 +344,12 @@ void MainWindow::loadSettings()
     ui_->m_pRadioExternalConfig->setChecked(settings().value("useExternalConfig", false).toBool());
     ui_->m_pRadioInternalConfig->setChecked(settings().value("useInternalConfig", true).toBool());
 
-    ui_->m_pGroupServer->setChecked(settings().value("groupServerChecked", false).toBool());
+    legacy_server_mode_ = settings().value("groupServerChecked", false).toBool();
+    updating_mode_ui_ = true;
+    ui_->m_pGroupServer->setChecked(legacy_server_mode_);
     ui_->m_pLineEditConfigFile->setText(settings().value("configFile",
                                                     QDir::homePath() + "/" + APP_CONFIG_NAME).toString());
-    ui_->m_pGroupClient->setChecked(settings().value("groupClientChecked", true).toBool());
+    ui_->m_pGroupClient->setChecked(!legacy_server_mode_);
     ui_->m_pLineEditHostname->setText(settings().value("serverHostname").toString());
     // Schema 2 makes the operating mode explicit.  Older installations only
     // had server/client settings (or the short-lived peerModeEnabled flag), so
@@ -351,6 +363,8 @@ void MainWindow::loadSettings()
         settings().sync();
     }
     ui_->m_pGroupPeer->setChecked(connectionMode == "peer");
+    updating_mode_ui_ = false;
+    applyPeerModeUi(connectionMode == "peer");
     auto nodeId = settings().value("peerNodeId").toString();
     if (nodeId.isEmpty() || nodeId == "0") {
         auto value = QRandomGenerator::global()->generate64();
@@ -391,11 +405,13 @@ void MainWindow::exitApplication()
 void MainWindow::saveSettings()
 {
     // program settings
-    settings().setValue("groupServerChecked", ui_->m_pGroupServer->isChecked());
+    const bool legacyServer = peerModeEnabled()
+        ? legacy_server_mode_ : ui_->m_pGroupServer->isChecked();
+    settings().setValue("groupServerChecked", legacyServer);
     settings().setValue("useExternalConfig", ui_->m_pRadioExternalConfig->isChecked());
     settings().setValue("configFile", ui_->m_pLineEditConfigFile->text());
     settings().setValue("useInternalConfig", ui_->m_pRadioInternalConfig->isChecked());
-    settings().setValue("groupClientChecked", ui_->m_pGroupClient->isChecked());
+    settings().setValue("groupClientChecked", !legacyServer);
     settings().setValue("serverHostname", ui_->m_pLineEditHostname->text());
     settings().setValue("peerModeEnabled", ui_->m_pGroupPeer->isChecked());
     settings().setValue("connectionMode",
@@ -618,8 +634,14 @@ void MainWindow::proofreadInfo()
 
 void MainWindow::start_cmd_app()
 {
-    bool desktopMode = appConfig().processMode() == Desktop;
-    bool serviceMode = appConfig().processMode() == Service;
+    const bool peerMode = peerModeEnabled();
+    if (peerMode) {
+        ensurePeerPrerequisites();
+        updateSSLFingerprint();
+    }
+    bool desktopMode = peerMode || appConfig().processMode() == Desktop;
+    bool serviceMode = !peerMode && appConfig().processMode() == Service;
+    bool startPeerClient = false;
 
     appendLogDebug("starting process");
     m_ExpectedRunningState = kStarted;
@@ -629,13 +651,6 @@ void MainWindow::start_cmd_app()
     QStringList args;
     QString peerClientApp;
     QStringList peerClientArgs;
-
-    if (peerModeEnabled() && !m_AppConfig->getCryptoEnabled()) {
-        QMessageBox::warning(this, tr("Peer mode"),
-                             tr("Peer mode requires TLS to authenticate both computers."));
-        set_connection_state(AppConnectionState::DISCONNECTED);
-        return;
-    }
 
     args << "-f" << "--no-tray" << "--debug" << appConfig().logLevelText();
 
@@ -691,18 +706,21 @@ void MainWindow::start_cmd_app()
     args << "--profile-dir" << QString::fromStdString("\"" + inputleap::DataDirectories::profile().u8string() + "\"");
 #endif
 
-    if (peerModeEnabled() && !desktopMode) {
-        QMessageBox::warning(this, tr("Peer mode"),
-                             tr("Peer mode currently requires desktop process mode."));
-        stop_cmd_app();
-        return;
-    }
-
-    if (peerModeEnabled()) {
+    if (peerMode) {
         peerClientArgs = args;
-        if (!serverArgs(args, app) || !clientArgs(peerClientArgs, peerClientApp)) {
+        if (!serverArgs(args, app)) {
             stop_cmd_app();
             return;
+        }
+        startPeerClient = !ui_->m_pLineEditHostname->text().trimmed().isEmpty();
+        if (startPeerClient) {
+            if (!clientArgs(peerClientArgs, peerClientApp)) {
+                stop_cmd_app();
+                return;
+            }
+        }
+        else {
+            appendLogInfo(tr("peer listener started; waiting for discovery and trust"));
         }
     }
     else if ((app_role() == AppRole::Client && !clientArgs(args, app))
@@ -720,8 +738,9 @@ void MainWindow::start_cmd_app()
 
     m_pLogWindow->startNewInstance();
 
-    appendLogInfo("starting " + QString(peerModeEnabled() ? "peer server and client" :
-        (app_role() == AppRole::Server ? "server" : "client")));
+    appendLogInfo("starting " + QString(peerMode
+        ? (startPeerClient ? "peer listener and connector" : "peer listener")
+        : (app_role() == AppRole::Server ? "server" : "client")));
 
     qDebug() << args;
 
@@ -743,7 +762,7 @@ void MainWindow::start_cmd_app()
             return;
         }
 
-        if (peerModeEnabled()) {
+        if (peerMode && startPeerClient) {
             peer_client_process_ = new QProcess(this);
             connect(peer_client_process_, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
                     this, &MainWindow::cmd_app_finished);
@@ -770,8 +789,14 @@ void MainWindow::start_cmd_app()
 
 void MainWindow::setServerMode(bool isServerMode)
 {
+    legacy_server_mode_ = isServerMode;
+    if (peerModeEnabled()) {
+        return;
+    }
+    updating_mode_ui_ = true;
     ui_->m_pGroupServer->setChecked(isServerMode);
     ui_->m_pGroupClient->setChecked(!isServerMode);
+    updating_mode_ui_ = false;
 }
 
 bool MainWindow::clientArgs(QStringList& args, QString& app)
@@ -921,7 +946,11 @@ void MainWindow::stop_cmd_app()
 
     m_ExpectedRunningState = kStopped;
 
-    if (appConfig().processMode() == Service)
+    if (cmd_app_process_ != nullptr || peer_client_process_ != nullptr)
+    {
+        stopDesktop();
+    }
+    else if (appConfig().processMode() == Service)
     {
         stopService();
     }
@@ -1291,23 +1320,77 @@ void MainWindow::updateSSLFingerprint()
 
 void MainWindow::on_m_pGroupClient_toggled(bool on)
 {
-    ui_->m_pGroupServer->setChecked(!on);
-    if (on) {
-        updateZeroconfService();
+    if (updating_mode_ui_ || peerModeEnabled()) {
+        return;
     }
+    updating_mode_ui_ = true;
+    ui_->m_pGroupServer->setChecked(!on);
+    updating_mode_ui_ = false;
+    legacy_server_mode_ = !on;
+    updateZeroconfService();
 }
 
 void MainWindow::on_m_pGroupServer_toggled(bool on)
 {
-    ui_->m_pGroupClient->setChecked(!on);
-    if (on) {
-        updateZeroconfService();
+    if (updating_mode_ui_ || peerModeEnabled()) {
+        return;
     }
+    updating_mode_ui_ = true;
+    ui_->m_pGroupClient->setChecked(!on);
+    updating_mode_ui_ = false;
+    legacy_server_mode_ = on;
+    updateZeroconfService();
 }
 
-void MainWindow::on_m_pGroupPeer_toggled(bool)
+void MainWindow::on_m_pGroupPeer_toggled(bool on)
 {
+    if (updating_mode_ui_) {
+        return;
+    }
+    applyPeerModeUi(on);
+    if (on) {
+        ensurePeerPrerequisites();
+        updateSSLFingerprint();
+    }
+    saveSettings();
     updateZeroconfService();
+}
+
+void MainWindow::applyPeerModeUi(bool enabled)
+{
+    updating_mode_ui_ = true;
+    if (enabled) {
+        // Remember the user's legacy runtime choice before Peer mode forces the
+        // desktop runtime.  Restore it when they return to Legacy mode.
+        legacy_process_mode_ = appConfig().processMode();
+        if (ui_->m_pGroupServer->isChecked()) {
+            legacy_server_mode_ = true;
+        }
+        else if (ui_->m_pGroupClient->isChecked()) {
+            legacy_server_mode_ = false;
+        }
+        ui_->m_pGroupServer->setChecked(false);
+        ui_->m_pGroupClient->setChecked(false);
+        ui_->m_pGroupServer->setEnabled(false);
+        ui_->m_pGroupClient->setEnabled(false);
+        ui_->m_pLabelPeerRequirements->setText(
+            tr("TLS: enabled automatically; Runtime: desktop process"));
+    }
+    else {
+        ui_->m_pGroupServer->setEnabled(true);
+        ui_->m_pGroupClient->setEnabled(true);
+        ui_->m_pGroupServer->setChecked(legacy_server_mode_);
+        ui_->m_pGroupClient->setChecked(!legacy_server_mode_);
+        m_AppConfig->m_ProcessMode = legacy_process_mode_;
+    }
+    updating_mode_ui_ = false;
+}
+
+void MainWindow::ensurePeerPrerequisites()
+{
+    m_AppConfig->setCryptoEnabled(true);
+    m_AppConfig->m_ProcessMode = Desktop;
+    m_AppConfig->saveSettings();
 }
 
 void MainWindow::on_m_pButtonTrustPeer_clicked()
@@ -1396,8 +1479,13 @@ void MainWindow::on_m_pActionSettings_triggered()
 {
     auto dialog = std::make_unique<SettingsDialog>(this, appConfig());
     connect(dialog.get(), &SettingsDialog::requestLanguageChange, this, &MainWindow::requestLanguageChange);
-    if (dialog.get()->exec() == QDialog::Accepted)
+    if (dialog.get()->exec() == QDialog::Accepted) {
+        if (peerModeEnabled()) {
+            ensurePeerPrerequisites();
+        }
         updateSSLFingerprint();
+        updateZeroconfService();
+    }
     disconnect(dialog.get(), &SettingsDialog::requestLanguageChange, this, &MainWindow::requestLanguageChange);
 }
 
@@ -1439,6 +1527,11 @@ void MainWindow::showConfigureServer(const QString& message)
 void MainWindow::on_m_pButtonConfigureServer_clicked()
 {
     showConfigureServer();
+}
+
+void MainWindow::on_m_pButtonConfigurePeer_clicked()
+{
+    showConfigureServer(tr("Arrange this computer and trusted peers on the grid."));
 }
 
 void MainWindow::on_m_pButtonReload_clicked()
